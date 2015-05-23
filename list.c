@@ -17,19 +17,25 @@ typedef struct List
 List *
 list_new(int (*cmp)(const void*, const void*))
 {
-  return &(List){.head=NULL, .cmp=cmp};
+  List * list = malloc(sizeof(List));
+  list->head = NULL;
+  list->cmp = cmp;
+  return list;
 }
 
 void
 list_add(List * list, void * ele)
 {
-  list->head = &(ListNode){ .data=ele, .next=list->head};
+  ListNode * node = malloc(sizeof(ListNode));
+  node->data = ele;
+  node->next = list->head;
+  list->head = node;
 }
 void *
 list_get(List * list, void * ele)
 {
   ListNode * node = list->head;
-  while (node != NULL && !list->cmp(ele, node))
+  while (node != NULL && list->cmp(ele, node->data))
       node=node->next;
 
   return (node != NULL) ? node->data : NULL;
@@ -40,11 +46,11 @@ list_remove(List * list, void * ele)
 {
 
   ListNode * node = list->head, * prev_node = NULL;
-  while (node != NULL && !list->cmp(ele, node))
+
+  while (node != NULL && list->cmp(ele, node->data))
     {
       prev_node = node;
       node=node->next;
-
     }
   if (node == NULL)
     return NULL;
@@ -63,30 +69,4 @@ list_remove(List * list, void * ele)
 int int_cmp(const void * a, const void * b)
 {
   return *(int*)a - *(int*)b;
-}
-
-void *
-integer(int i)
-{
-  int * pi = malloc(sizeof(int));
-  *pi = i;
-  return pi;
-}
-
-int
-main()
-{
-
-  List * l = list_new(int_cmp);
-  list_add(l, integer(4));
-  list_get(l,integer(3));
-  list_get(l,integer(4));
-  list_get(l,integer(4));
-  list_remove(l,integer(3));
-  list_remove(l,integer(4));
-  list_remove(l,integer(4));
-
-  list_add(l, integer(3));
-
-  return EXIT_SUCCESS;
 }
