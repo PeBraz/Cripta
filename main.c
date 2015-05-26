@@ -1,29 +1,17 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include "list.h"
+#include "main.h"
 
 #define error(s) printf("[Error]: %s\n",s)
 #define not(cond) (!cond)
 
 
-#ifdef (__unix__)
-#define NIX __unix__
-#include "dirent.h"
-#elif (WIN32) || (_WIN32)
-#define WINDOWS (WIN32) || (_WIN32)
-#else
-#endif
 
-//Cripta main
 
-struct walk_s
-{
-  char * fullpath;
-  char * dirs[];
-  char * files[];
-}
 
 //
 //  walk - returns the information, related to the given path
@@ -32,17 +20,17 @@ struct walk_s
 //  @return       a walk_s containing the full path of the given path
 //                the directories inside the directory
 //                the files inside the directory
-
+/*
 walk_s *
 walk(char * path)
 {
   if not(is_dir(path))
     {
-      error("Path given is not a directory.")
+      error("Path given is not a directory.");
       return NULL;
     }
 
-#ifdef NIX
+
 
   DIR * dir = opendir(path);
   if (dir == NULL)
@@ -54,15 +42,13 @@ walk(char * path)
   dirent * dp;
   while ((dp = readdir(dir)) != NULL)
     {
-      
+
 
     }
-#elif WINDOWS
 
-#endif
 
 }
-
+*/
 //
 // is_dir - tests if given location is a directory
 //
@@ -83,13 +69,32 @@ is_dir(char * path)
 //  @param  path  path to list
 //  @return       array with the name of all the items inside
 //
-char **
+List *
 list_dir(char * path)
 {
+  List * l = list_new((int(*)(const void*, const void*))strcmp);
+  DIR * dir = opendir(path);
+  if (dir == NULL)
+    {
+    error("unable to open path");
+    return NULL;
+    }
+  dirent * dp;
+  while ((dp = readdir(dir)) != NULL)
+    list_add(l, string(dp->d_name));
 
+  closedir(dir);
 
+  return l;
 }
 
+void *
+string(char * old_str)
+{
+  char * str = malloc((strlen(old_str) + 1) * sizeof(char));
+  strcpy(str, old_str);
+  return str;
+}
 
 int
 main(int argc, char * argv[])
@@ -99,6 +104,7 @@ main(int argc, char * argv[])
       error("No Directory path given, exiting now.");
       return EXIT_FAILURE;
     }
-
+  List * l = list_dir(".");
+  printf("%d\n", l->length);
   return EXIT_SUCCESS;
 }

@@ -1,18 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-
-typedef struct list_node
-{
-  void * data;
-  struct list_node * next;
-} ListNode;
-
-typedef struct List
-{
-  ListNode * head;
-  int (*cmp)(const void *,const void*);
-} List;
-
+#include "list.h"
 
 List *
 list_new(int (*cmp)(const void*, const void*))
@@ -20,6 +6,7 @@ list_new(int (*cmp)(const void*, const void*))
   List * list = malloc(sizeof(List));
   list->head = NULL;
   list->cmp = cmp;
+  list->length = 0;
   return list;
 }
 
@@ -30,6 +17,7 @@ list_add(List * list, void * ele)
   node->data = ele;
   node->next = list->head;
   list->head = node;
+  list->length++;
 }
 void *
 list_get(List * list, void * ele)
@@ -63,7 +51,21 @@ list_remove(List * list, void * ele)
   }
   void * data = node->data;
   free(node);
+  list->length--;
   return data;
+}
+
+void
+list_free(List * list)
+{
+  ListNode * node = list->head,* prev_node = NULL;
+  while (node != NULL)
+  {
+    prev_node = node;
+    node = node->next;
+    free(prev_node);
+  }
+  free(list);
 }
 
 int int_cmp(const void * a, const void * b)
