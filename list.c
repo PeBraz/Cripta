@@ -1,5 +1,8 @@
 #include "list.h"
 
+
+void _list_free(List*,int);
+
 List *
 list_new(int (*cmp)(const void*, const void*))
 {
@@ -55,15 +58,38 @@ list_remove(List * list, void * ele)
   return data;
 }
 
+void list_free(List * list)
+{
+  _list_free(list, 0);
+}
+
+
+void list_full_free(List * list)
+{
+  _list_free(list, 1);
+}
+
+//
+//  _list_free - Deallocates all memory associated with the list.
+//      Can also choose to keep the data blocks in memory, making the user responsible for cleaning 
+//      those blocks;  
+//
+//  @param  list  created by list_new() to be destroyed
+//  @param  do_full_free flag for the user to choose what kind of cleanup he wants.
+//  
+
 void
-list_free(List * list)
+_list_free(List * list, int do_full_free)
 {
   ListNode * node = list->head,* prev_node = NULL;
   while (node != NULL)
   {
     prev_node = node;
     node = node->next;
-    free(prev_node->data);
+
+    if (do_full_free) 
+      free(prev_node->data);
+
     free(prev_node);
   }
   free(list);

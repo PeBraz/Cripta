@@ -74,7 +74,6 @@ get_hash(char * message, int * length)
 void
 file_write(char * full_name, char * content)
 {
-
 	//open real file
 	FILE * f = fopen(full_name, "r");
 
@@ -100,7 +99,6 @@ file_write(char * full_name, char * content)
 	char * text = read_full_file(f);
 	fwrite(text, sizeof(char), strlen(text), new_f);
 	free(text);
-
 }
 
 unsigned char *
