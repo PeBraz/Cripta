@@ -63,6 +63,7 @@ list_free(List * list)
   {
     prev_node = node;
     node = node->next;
+    free(prev_node->data);
     free(prev_node);
   }
   free(list);

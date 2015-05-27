@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "list.h"
 
 #ifndef _MAIN_H
 #define _MAIN_H
@@ -12,13 +13,16 @@ typedef struct walk_s
 } walk_s;
 
 
-walk_s * walk(char * path);
+walk_s * walk(char*);
 
-int is_dir(char * path);
+int is_dir(char*);
 
-List * list_dir(char * path);
+List * list_dir(char*);
 
-void * string(char * old_str);
+void * string(char*);
 
+char * read_full_file(FILE*);
+
+void file_write(char*);
 
 #endif
