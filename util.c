@@ -60,6 +60,8 @@ get_hash(char * message, int * length)
 
 	return  hash;
 }
+
+
 /*
 *	First implementation, assumes input is not a full directory, but 1 file.
 *	needs to be able to write a file and encrypt it with metadata, 
@@ -68,7 +70,6 @@ get_hash(char * message, int * length)
 *		- filename	(max 65536 characters)
 *		- HASH (will use 256 (2bytes))
 *		total: 2bytes + filenamelength + 2bytes
-*
 */
 void
 file_write(char * full_name, char * content)
@@ -79,16 +80,42 @@ file_write(char * full_name, char * content)
 
 	char * file_name_suffix = "_cripta"
 	int file_name_length = strlen(full_name);
-	char * new_file_name = malloc(file_name_length + strlen())
 
+	char * new_file_name = malloc(file_name_length + strlen(file_name_suffix) + 1);
+	sprintf(new_file_name, "%s%s", full_name, file_name_suffix);
 	//create virtual file
-	FILE * new_f = fopen(full_n)
+	FILE * new_f = fopen(new_file_name, "w+");
 
-	byte length[2];	
-	length[0] = (file_name_length >> 8) & 0xFF;
-	length[1] = file_name_length & 0xFF;
+	//get size of file in bytes
+	byte meta_size_text[2];	
+	meta_size_text[0] = (file_name_length >> 8) & 0xFF;
+	meta_size_text[1] = file_name_length & 0xFF;
 
-	fwrite();
+	//write metadata
+	fwrite(meta_size_text, sizeof(byte), 2, new_f);
+	fwrite(full_name, sizeof(char), file_name_length, new_f);
+	// write 256bit hash (32bytes)
+	fwrite(get_test_hash(), sizeof(unsigned char), 32, new_f);
+	//write file
+	char * text = read_full_file(f);
+	fwrite(text, sizeof(char), strlen(text), new_f);
+	free(text);
 
+}
 
+unsigned char *
+get_test_hash()
+{
+	return "00000000000000000000000000000000";
+}
+
+char *
+read_full_file(FILE * f)
+{
+	fseek(f, SEEK_END);
+	int length = fteel(f);
+	rewind();
+	char * data = malloc(length + 1);
+	fread(data, sizeof(char), length, f);
+	return data;
 }
