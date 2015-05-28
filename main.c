@@ -7,7 +7,6 @@
 #include "main.h"
 
 #define error(s) printf("[Error]:%s\n",s)
-#define not(cond) (!cond)
 
 char * concat_path(char*, char*);
 
@@ -19,37 +18,7 @@ struct directory
 };
 
 
-//
-//  walk - returns the information, related to the given path
-//
-//  @param  path  to walk
-//  @return       a walk_s containing the full path of the given path
-//                the directories inside the directory
-//                the files inside the directory
-/*
-walk_s *
-walk(char * path)
-{
 
-  if not(is_dir(path))
-    {
-      error("Path given is not a directory.");
-      return NULL;
-    }
-
-  List * files_lst = list_new(int(*)(char *, char*)strcmp);
-  List * dir_lst = list_new(int(*)(char *, char*)strcmp);
-
-  List * path_lst = list_dir(path);
-  ListNode * node = path_lst->head;
-  while(node != NULL)
-      list_add((is_dir(path) ? dir_lst : files_lst), path_lst->data);
-
-  list_free(path_list);
-
-
-}
-*/
 //
 // is_dir - tests if given location is a directory
 //
@@ -74,34 +43,6 @@ is_file(char * path)
   return access(path, F_OK) != -1;
 }
 
-//
-//  list_dir - returns all directories and files inside the directory
-//             in the path given.
-//
-//  @param  path  in the directory
-//  @return       a directory structure with all the items inside
-//
-/*
-struct directory *
-list_dir(char * path)
-{
-  List * l = list_new((int(*)(const void*, const void*))strcmp);
-  DIR * dir = opendir(path);
-  if (dir == NULL)
-    {
-    error("unable to open path");
-    return NULL;
-    }
-
-  struct dirent * dp;
-  while ((dp = readdir(dir)) != NULL)
-    list_add(l, string(dp->d_name));
-
-  closedir(dir);
-
-  return l;
-}
-*/
 
 struct directory *
 new_dir(char * path)
@@ -112,9 +53,6 @@ new_dir(char * path)
     error("unable to open path");
     return NULL;
     }
-  //  printf("I am path:%s\n", path );
-  //define my_path so that subdirectories can know their relative paths
-
 
   struct directory * virt_dir = malloc(sizeof(struct directory));
 
@@ -128,16 +66,11 @@ new_dir(char * path)
   while ((dp = readdir(dir)) != NULL)
     {
 
-  
     if (!strcmp(".",dp->d_name) || !strcmp("..",dp->d_name)) continue;
     //  If a directory is found, a recursive call will start for new_dir(), until there are no more
     // directories (symbolic links may be bad, because this won't account for cycles in the file system)
     next_path = concat_path(path, dp->d_name);
-    //  printf("found: %s is a %s\n", next_path, 
-    //      is_dir(next_path) ? "Directory": 
-    //                           is_file(next_path) ? "File" : "DAFUQ");
   
-
     if (is_dir(next_path)) 
       list_add(virt_dir->directories, new_dir(next_path));
     else if (is_file(next_path))
@@ -183,8 +116,10 @@ read_full_file(FILE * f)
 // directory_free - frees any data allocated by a directory struct
 //    This processes the directory recursively, so that any subdirectory is also freed
 //
-//  @param  dir  the directory to be freed
-//  @return       
+//  This should be used on the root, if only a subdirectory is freed, the root could still try 
+//  and access a freed subdir and it would lead to a seg fault.
+//
+//  @param  dir  the directory to be freed   
 //
 void
 directory_free(struct directory * dir)
@@ -217,6 +152,166 @@ char * concat_path(char * path_prefix, char * path_sufix)
   return full_path;
 }
 
+//  
+//
+//
+
+void
+create_cripta(char * path)
+{
+  const struct directory * dir = new_dir(path);
+  const char * file_name_suffix = "_CRIPTA";
+  //create new file
+  char * new_file_name = malloc(strlen(path) + strlen(file_name_suffix) + 1);
+  sprintf(new_file_name, "%s%s", path, file_name_suffix);
+  FILE * new_f = fopen(new_file_name, "w+");
+  free(new_file_name);
+
+  char * dir_meta = create_dir_meta(dir);
+  fwrite(dir_meta, sizeof(char), strlen(dir_meta), new_f);
+
+
+  //For every directory write a meta and then for each file
+  //try to create an auxiliar function to do this recursively
+
+  directory_free(dir);
+}
+
+//
+//  create_dir_meta - creates and reserves space for a directory meta
+//
+//  1 - size of the path string - 2 bytes
+//  2 - path string - xbytes  (1byte each)
+//  3 - number of directories - 2 bytes
+//  4 - directories offset - xdirectories (4bytes each)
+//  5 - number of files - 2 bytes
+//  6 - files offset - xfiles (4bytes each)
+//
+//  @param    dir   the directory correspondent to the meta to create
+//  @return         the meta as a string
+//
+char *
+create_dir_meta(struct directory * dir)
+{
+  const int path_size_length = 2;
+  const int dir_count_length = 2;
+  const int file_count_length = 2;
+  const int dir_name_length = 4;
+  const int file_name_length = 4;
+
+  const int path_name_length = strlen(dir->name);
+  const int meta_size = path_size_length + path_name_length
+          + dir_count_length + (dir_name_length * dir->directories->length)  
+          + file_count_length + (file_name_length * dir->files->length)
+          + 1;
+
+  char * meta = malloc(meta_size);
+
+  unsigned char[] b_path_name_length = int_to_bytes(path_name_length, 2);
+  sprintf(meta,"%c%c%s",b_path_name_length[0], b_path_name_length[1], dir->name);
+  free(b_path_name_length);
+
+  unsigned char[] b_dir_count_length = int_to_bytes(dir_count_length, 2);
+  strncat(meta, b_dir_count_length , 2);
+  free(b_dir_count_length);
+  ListNode * node = dir->directories->head;
+
+  while(node!=NULL)
+    { //reserve 4 bytes
+      strcat(meta,"0000", 4);
+      node = node->next;
+    }
+
+  unsigned char[] b_file_count_length = int_to_bytes(file_count_length, 2);
+  strncat(meta, b_file_count_length , 2);
+  free(b_file_count_length);
+
+  node = dir->files->head;
+  while(node!=NULL)
+    { //reserve 4 bytes
+      strcat(meta,"0000", 4);
+      node = node->next;
+    }
+
+  meta[meta_size-1] = '\0';
+  return meta;
+}
+
+//
+// add_file_offset_meta - walks the meta string until it finds the position to store the 
+//                        file offset
+//
+//  @param meta         where to store the offset
+//  @param file_offset  the offset to write in the string in bytes
+//  @param pos          the position in the files to store the offset
+//
+//  TODO: fix the magical numbers (they are byte sizes)
+void
+add_file_offset_meta(char * meta, int file_offset, int pos)
+{
+
+  int path_size =  bytes_to_int(meta,2);
+  meta += 2 + path_size;
+  int dir_count = bytes_to_int(meta,2);
+  meta += 2 + (4*dir_count) + 2 + (4*pos);
+  unsigned char[] b_file_offset = int_to_bytes(file_offset);
+  strncpy(meta, b_file_offset, 4);
+  free(b_file_offset);
+}
+//
+// add_dir_offset_meta - walks the meta string until it finds the position to store the 
+//                        directory offset
+//
+//  @param meta         where to store the offset
+//  @param dir_offset   the offset to write in the string in bytes
+//  @param pos          the position in the directories to store the offset
+//
+//
+//  TODO: fix the magical numbers (they are byte sizes)
+void
+add_dir_offset_meta(char * meta, int dir_offset, int pos)
+{
+  int path_size =  bytes_to_int(meta,2);
+  meta += 2 + path_size + 2 + (4*pos);
+  unsigned char[] b_dir_offset = int_to_bytes(file_offset);
+  strncpy(meta, b_dir_offset, 4);
+  free(b_dir_offset);
+}
+
+
+//is this really needed ?
+unsigned char[]
+int_to_bytes(int integer, int num_of_bytes)
+{
+  if (num_of_bytes <= 0) 
+    return NULL;
+
+  unsigned char 2bytes_array = malloc(num_of_bytes);
+  int i, shift = (num_of_bytes - 1) * 8;
+  for (i = 0; i< num_of_bytes; i++)
+    {
+      bytes_array[i] = integer >> shift;
+      shift--;
+    }
+  return bytes_array;
+}
+
+int
+bytes_to_int(unsigned char[] bytes, int num_of_bytes)
+{
+  if (num_of_bytes <= 0) 
+    return 0;
+
+  int integer = 0;
+  int i, shift = (num_of_bytes - 1) * 8;
+  for (i = 0; i< num_of_bytes; i++)
+    {
+      integer = bytes[i];
+      integer <<= shift;
+    }
+  return integer;
+
+}
 
 /*
 * First implementation, assumes input is not a full directory, but 1 file.
@@ -249,7 +344,7 @@ file_write(char * full_name)
   FILE * new_f = fopen(new_file_name, "w+");
   free(new_file_name);
   //get size of file in bytes
-  unsigned char meta_size_text[2]; 
+  unsigned char meta_size_text[2];
   meta_size_text[0] = (file_name_length >> 8) & 0xFF;
   meta_size_text[1] = file_name_length & 0xFF;
 
