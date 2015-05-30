@@ -167,9 +167,18 @@ create_cripta(char * path)
   FILE * new_f = fopen(new_file_name, "w+");
   free(new_file_name);
 
-  char * dir_meta = create_dir_meta(dir);
+  char * dir_meta = create_dir_meta(dir, NULL);
   fwrite(dir_meta, sizeof(char), strlen(dir_meta), new_f);
 
+  ListNode * node = dir->directories->head;
+  int pos = 0;
+  char * sub_dir_meta;
+  while (node != NULL)
+    {
+      sub_dir_meta = create_dir_meta((struct directory)node->data, dir_meta);
+    }
+  char * sub_dir_meta = create_dir_meta(dir_meta);
+  char * file_meta = crate_file_meta(dir_meta);
 
   //For every directory write a meta and then for each file
   //try to create an auxiliar function to do this recursively
