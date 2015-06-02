@@ -186,6 +186,49 @@ create_cripta(char * path)
   directory_free(dir);
 }
 
+
+//
+//  create_cripta_with_father:
+//     Creating a cripta, will start by going down each directory, until it reaches
+//     the directories' roots. Writing all the files and then the directory meta at the      
+//     initial position of the file.
+//  
+//
+void
+create_cripta_with_father(struct directory dir,char * father_meta,
+                          FILE * file)
+{
+  int dir_meta_position = ftell(file);
+
+  const int father_meta_size = strlen(father_meta);
+  fseek(file, father_meta_size, SEEK_CUR);  //reserve space for when writing meta
+
+  struct directory curr_dir;
+  ListNode * node = dir->directories->head;
+  while (node != NULL)
+    {
+      curr_dir = (struct directory) node->data;
+      char * son_meta = create_dir_meta(curr_dirr);
+      create_cripta_with_father(curr_dirr, son_meta);
+      free(son_meta)
+      node = node->next;
+    }
+
+  node = dir->files->head;
+  while (node != NULL)
+    {
+      //writes the file in the file and updates the directory meta that points to it
+      write_cripta_file((char *) filename, father_meta);
+    }
+
+  //after all files written, write the directory meta fully updated
+  fseek(file, dir_meta_position, SEEK_SET);
+  fwrite(father_meta, sizeof(char), father_meta_size, file);
+  fseek(file, 0, SEEK_END);
+}
+
+
+
 //
 //  create_dir_meta - creates and reserves space for a directory meta
 //
