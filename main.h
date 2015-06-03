@@ -12,6 +12,13 @@ typedef struct walk_s
   List * files;
 } walk_s;
 
+struct directory
+{
+  char * name;
+  List * directories;
+  List * files;
+};
+
 
 walk_s * walk(char*);
 
@@ -24,5 +31,16 @@ void * string(char*);
 char * read_full_file(FILE*);
 
 void file_write(char*);
+
+void create_cripta(char*);
+
+void create_cripta_with_father(struct directory *,
+							   char*, FILE*);
+
+char * create_dir_meta(struct directory*);
+
+unsigned char * int_to_bytes(int, int);
+
+int bytes_to_int(unsigned char *, int);
 
 #endif
