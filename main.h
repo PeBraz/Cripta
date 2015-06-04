@@ -28,19 +28,22 @@ List * list_dir(char*);
 
 void * string(char*);
 
-char * read_full_file(FILE*);
+char * read_full_file(char*);
 
 void file_write(char*);
 
 void create_cripta(char*);
 
-void create_cripta_with_father(struct directory *,
-							   char*, FILE*);
+void create_cripta_with_father(struct directory *, FILE*);
 
-char * create_dir_meta(struct directory*);
+char * create_dir_meta(struct directory*, int*);
 
 unsigned char * int_to_bytes(int, int);
 
 int bytes_to_int(unsigned char *, int);
+
+void add_file_offset_meta(char *, int, int);
+
+void add_dir_offset_meta(char *, int, int);
 
 #endif

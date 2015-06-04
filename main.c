@@ -12,7 +12,6 @@ char * concat_path(char*, char*);
 
 
 
-
 //
 // is_dir - tests if given location is a directory
 //
@@ -95,13 +94,15 @@ get_test_hash()
 }
 
 char *
-read_full_file(FILE * f)
+read_full_file(char * filename)
 {
+  FILE * f = fopen(filename, "r");
   fseek(f, 0, SEEK_END);
   int length = ftell(f);
   rewind(f);
   char * data = malloc(length + 1);
   fread(data, sizeof(char),length, f);
+  fclose(f);
   data[length] = '\0';
   return data;
 }
@@ -137,7 +138,8 @@ directory_free(struct directory * dir)
 //  @param  path_sufix    of the path to be concatenated
 //  @return               the concatenated path
 //
-char * concat_path(char * path_prefix, char * path_sufix)
+char * 
+concat_path(char * path_prefix, char * path_sufix)
 {
   const char * PATH_SEP = "/";
   char * full_path = malloc(strlen(path_prefix) + strlen(PATH_SEP) + 
@@ -146,10 +148,12 @@ char * concat_path(char * path_prefix, char * path_sufix)
   return full_path;
 }
 
+
+
 //  
 //
 //
-/*
+
 void
 create_cripta(char * path)
 {
@@ -161,25 +165,12 @@ create_cripta(char * path)
   FILE * new_f = fopen(new_file_name, "w+");
   free(new_file_name);
 
-  char * dir_meta = create_dir_meta(dir);
-  fwrite(dir_meta, sizeof(char), strlen(dir_meta), new_f);
+  create_cripta_with_father(dir, new_f);
 
-  ListNode * node = dir->directories->head;
-  int pos = 0;
-  char * sub_dir_meta;
-  while (node != NULL)
-    {
-      sub_dir_meta = create_dir_meta((struct directory *)node->data);
-    }
-  //char * sub_dir_meta = create_dir_meta(dir_meta);
-  //char * file_meta = crate_file_meta(dir_meta);
-
-  //For every directory write a meta and then for each file
-  //try to create an auxiliar function to do this recursively
-
+  fclose(new_f);
   directory_free(dir);
 }
-*/
+
 
 //
 //  create_cripta_with_father:
@@ -188,40 +179,47 @@ create_cripta(char * path)
 //     initial position of the file.
 //  
 //
+//  dir_index - index for replacing its directory info in the father meta (should start at 0)
+//  father_meta - should be NULL, not necessary for root directory
+
 void
-create_cripta_with_father(struct directory * dir,char * father_meta,
-                          FILE * file)
+create_cripta_with_father(struct directory * dir, FILE * file)
 {
   int dir_meta_position = ftell(file);
-
-  const int father_meta_size = strlen(father_meta);
-  fseek(file, father_meta_size, SEEK_CUR);  //reserve space for when writing meta
-
-  struct directory * curr_dir;
+  int meta_size;
+  char * my_meta = create_dir_meta(dir, &meta_size);
+  fseek(file, meta_size, SEEK_CUR);  //reserve space for when writing meta
+  
+  int dirNumber = 0;
   ListNode * node = dir->directories->head;
   while (node != NULL)
-    {
-      curr_dir = (struct directory *) node->data;
-      char * son_meta = create_dir_meta(curr_dir);
-      create_cripta_with_father(curr_dir, son_meta, file);
-      free(son_meta);
+    { //Recursively write each directories information into the same file
+      add_dir_offset_meta(my_meta, ftell(file), dirNumber++);
+      create_cripta_with_father((struct directory *)node->data, file);
       node = node->next;
     }
 
   node = dir->files->head;
+  int fileNumber = 0;
+  char * file_content;
   while (node != NULL)
     {
-      //writes the file in the file and updates the directory meta that points to it
+      //writes the file in the cripta file and updates the directory meta that points to it
       //write_cripta_file((char *)node->data, father_meta);
+      add_file_offset_meta(my_meta, ftell(file), fileNumber++);
+      file_content = read_full_file((char*)node->data);
+      fwrite(file_content, sizeof(char), strlen(file_content), file);
+      free(file_content);
       node = node->next;
     }
 
-  //after all files written, write the directory meta fully updated
+  //after all files and dirs seen, write the directory meta fully updated
   fseek(file, dir_meta_position, SEEK_SET);
-  fwrite(father_meta, sizeof(char), father_meta_size, file);
+  fwrite(my_meta, sizeof(char), meta_size, file);
+  free(my_meta);
+  //always append at the end of the file 
   fseek(file, 0, SEEK_END);
 }
-
 
 
 //
@@ -241,8 +239,10 @@ create_cripta_with_father(struct directory * dir,char * father_meta,
 //  Restrictions:   max directory name size = 2^(16)
 //  (single meta)   max files/directories = 2 ^ (16)
 //
+
+
 char *
-create_dir_meta(struct directory * dir)
+create_dir_meta(struct directory * dir, int * meta_size) 
 {
   const int path_size_length = 2;
   const int dir_count_length = 2;
@@ -251,47 +251,50 @@ create_dir_meta(struct directory * dir)
   const int file_name_length = 4;
 
   const int path_name_length = strlen(dir->name);
-  const int meta_size = path_size_length + path_name_length
+  *meta_size = path_size_length + path_name_length
           + dir_count_length + (dir_name_length * dir->directories->length)  
           + file_count_length + (file_name_length * dir->files->length)
           + 1;
 
+  int meta_offset = 0;
 
-  char * meta = malloc(meta_size);
+  char * meta = malloc(*meta_size);
   unsigned char * b_path_name_length = int_to_bytes(path_name_length, 2);
-  sprintf(meta,"%i%i%s",b_path_name_length[0], b_path_name_length[1], dir->name);
+
+  memcpy(meta + meta_offset, b_path_name_length, 2);
   free(b_path_name_length);
 
+  meta_offset += path_size_length;
+  memcpy(meta + meta_offset, dir->name, path_name_length);
+
+  meta_offset += path_name_length;
+
   unsigned char * b_dir_count_length = int_to_bytes(dir->directories->length, 2);
-  //I need to concatenate the string as integers, not chars, need to format.
-  char * char_to_intstring = malloc(2);
-  sprintf(char_to_intstring, "%i%i", b_dir_count_length[0], b_dir_count_length[1]);
-  
-  strncat(meta, char_to_intstring , 2);
+
+  memcpy(meta + meta_offset, b_dir_count_length, 2);
   free(b_dir_count_length);
+  
 
+  meta_offset += dir_count_length;
   ListNode * node = dir->directories->head;
-
   while(node!=NULL)
     { //reserve 4 bytes
-      strncat(meta,"0000", 4);
+      memcpy(meta + meta_offset,"0000", 4);
+      meta_offset+=4;
       node = node->next;
     }
 
   unsigned char * b_file_count_length = int_to_bytes(dir->files->length, 2);
-  sprintf(char_to_intstring, "%i%i", b_dir_count_length[0], b_dir_count_length[1]);
-  
-  strncat(meta, char_to_intstring , 2);
-  free(b_file_count_length);
-  free(char_to_intstring);
+  memcpy(meta + meta_offset, b_file_count_length, file_count_length);
+
+  meta_offset += file_count_length;
   node = dir->files->head;
   while(node!=NULL)
     { //reserve 4 bytes
-      strncat(meta,"0000", 4);
+      memcpy(meta + meta_offset,"0000", 4);
+      meta_offset +=4;
       node = node->next;
     }
-
-  meta[meta_size-1] = '\0';
   return meta;
 }
 
@@ -307,8 +310,7 @@ create_dir_meta(struct directory * dir)
 void
 add_file_offset_meta(char * meta, int file_offset, int pos)
 {
-
-  int path_size =  bytes_to_int(meta,2);
+  int path_size = bytes_to_int(meta,2);
   meta += 2 + path_size;
   int dir_count = bytes_to_int(meta,2);
   meta += 2 + (4*dir_count) + 2 + (4*pos);
@@ -316,6 +318,8 @@ add_file_offset_meta(char * meta, int file_offset, int pos)
   strncpy(meta, b_file_offset, 4);
   free(b_file_offset);
 }
+
+
 //
 // add_dir_offset_meta - walks the meta string until it finds the position to store the 
 //                        directory offset
@@ -364,75 +368,34 @@ bytes_to_int(unsigned char * bytes, int num_of_bytes)
   int i, shift = (num_of_bytes - 1) * 8;
   for (i = 0; i< num_of_bytes; i++)
     {
-      integer = bytes[i];
-      integer <<= shift;
+      integer |= (bytes[i] << shift);
+      shift -= 8;
     }
   return integer;
-
-}
-
-/*
-* First implementation, assumes input is not a full directory, but 1 file.
-* needs to be able to write a file and encrypt it with metadata, 
-* metadata:
-*   - filenamelength (2bytes)
-*   - filename  (max 65536 characters)
-*   - HASH (will use 256 (2bytes))
-*   total: 2bytes + filenamelength + 2bytes
-*/
-
-void
-file_write(char * full_name)
-{
-  //open real file
-  FILE * f = fopen(full_name, "r");
-
-  if (f == NULL)
-    {
-    error("Unable to open file");
-    return;
-    }
-
-  char * file_name_suffix = "_cripta";
-  int file_name_length = strlen(full_name);
-
-  char * new_file_name = malloc(file_name_length + strlen(file_name_suffix) + 1);
-  sprintf(new_file_name, "%s%s", full_name, file_name_suffix);
-  //create virtual file
-  FILE * new_f = fopen(new_file_name, "w+");
-  free(new_file_name);
-  //get size of file in bytes
-  unsigned char meta_size_text[2];
-  meta_size_text[0] = (file_name_length >> 8) & 0xFF;
-  meta_size_text[1] = file_name_length & 0xFF;
-
-  //write metadata
-  fwrite(meta_size_text, sizeof(unsigned char), 2, new_f);
-  fwrite(full_name, sizeof(char), file_name_length, new_f);
-  // write 256bit hash (32bytes)
-  unsigned char * hash = get_test_hash();
-  fwrite(hash, sizeof(unsigned char), 32, new_f);
-  //write file
-  char * text = read_full_file(f);
-  fwrite(text, sizeof(char), strlen(text), new_f);
-  free(text);
-  fclose(f);
-  fclose(new_f); 
 }
 
 int
 main(int argc, char * argv[])
 {
+  char * dir_name;
+  int freeable = 0;
   if (argc < 2)
     {
-      error("No Directory path given, exiting now.");
-      return EXIT_FAILURE;
-    }
-  struct directory * s = new_dir(".");
+      dir_name = "../test";
+    // error("No Directory path given, exiting now.");
+    // return EXIT_FAILURE;
 
-  char * meta = create_dir_meta(s);
-  printf("%s\n", meta);
-  free(meta);
-  directory_free(s);
+    }
+  else
+    {
+      dir_name = malloc(strlen(argv[1]) + 1);
+      strcpy(dir_name, argv[1]);
+      freeable = 1;
+    }
+  create_cripta(dir_name);
+
+  if (freeable)
+    free(dir_name);
+
   return EXIT_SUCCESS;
 }
