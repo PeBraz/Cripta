@@ -1,10 +1,14 @@
+CC=gcc
+XNAME=cripta
 all: list.o main.o
-	gcc -o cripta list.o main.o -lssl -lcrypto
+	${CC} -g -o ${XNAME} list.o main.o -lssl -lcrypto
 
 main.o:
-	gcc -c main.c
+	${CC} -c main.c
 list.o:
-	gcc -c list.c
+	${CC} -c list.c
 
+val: all
+	valgrind --leak-check=full ./${XNAME} .
 clean:
 	rm main.o list.o cripta

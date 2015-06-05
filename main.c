@@ -8,7 +8,28 @@
 
 #define error(s) printf("[Error]:%s\n",s)
 
+//num of bytes reserved for writing a meta file
+/* full space used to write the path name */
+#define PATH_SIZE_LENGTH 2 
+/* space used to write the number of directories/files*/
+#define DIR_COUNT_LENGTH 2  
+#define FILE_COUNT_LENGTH 2 
+/* bytes used to write the offset to a directory/file within the cripta*/
+#define DIR_NAME_LENGTH 4
+#define FILE_NAME_LENGTH 4
+/* bytes reserved for a hash */
+#define HASH_LENGTH 32
+
+/* number of bits in a byte */
+#define BYTE 8 
+
+/* paddings to be added to Directory and file, needs to have same size
+ * as DIR_NAME_LENGTH and FILE_NAME_LENGTH
+ */
+#define DIR_NAME_PADDING "0000"
+#define FILE_NAME_PADDING "0000"
 char * concat_path(char*, char*);
+
 
 
 
@@ -86,12 +107,6 @@ string(char * old_str)
   return str;
 }
 
-unsigned char *
-get_test_hash()
-{
-  static unsigned char hash[] = "00000000000000000000000000000000";
-  return hash;
-}
 
 char *
 read_full_file(char * filename)
@@ -147,7 +162,6 @@ concat_path(char * path_prefix, char * path_sufix)
   sprintf(full_path,"%s%s%s", path_prefix, PATH_SEP, path_sufix);
   return full_path;
 }
-
 
 
 //  
@@ -244,55 +258,49 @@ create_cripta_with_father(struct directory * dir, FILE * file)
 char *
 create_dir_meta(struct directory * dir, int * meta_size) 
 {
-  const int path_size_length = 2;
-  const int dir_count_length = 2;
-  const int file_count_length = 2;
-  const int dir_name_length = 4;
-  const int file_name_length = 4;
-
   const int path_name_length = strlen(dir->name);
-  *meta_size = path_size_length + path_name_length
-          + dir_count_length + (dir_name_length * dir->directories->length)  
-          + file_count_length + (file_name_length * dir->files->length)
+  *meta_size = PATH_SIZE_LENGTH + path_name_length
+          + DIR_COUNT_LENGTH + (DIR_NAME_LENGTH * dir->directories->length)  
+          + FILE_COUNT_LENGTH + (FILE_NAME_LENGTH * dir->files->length)
           + 1;
 
   int meta_offset = 0;
 
   char * meta = malloc(*meta_size);
-  unsigned char * b_path_name_length = int_to_bytes(path_name_length, 2);
+  unsigned char * b_path_name_length = int_to_bytes(path_name_length, PATH_SIZE_LENGTH);
 
-  memcpy(meta + meta_offset, b_path_name_length, 2);
+  memcpy(meta + meta_offset, b_path_name_length, PATH_SIZE_LENGTH);
   free(b_path_name_length);
 
-  meta_offset += path_size_length;
+  meta_offset += PATH_SIZE_LENGTH;
   memcpy(meta + meta_offset, dir->name, path_name_length);
 
   meta_offset += path_name_length;
 
-  unsigned char * b_dir_count_length = int_to_bytes(dir->directories->length, 2);
+  unsigned char * b_dir_count_length = int_to_bytes(dir->directories->length, DIR_COUNT_LENGTH);
 
-  memcpy(meta + meta_offset, b_dir_count_length, 2);
+  memcpy(meta + meta_offset, b_dir_count_length, DIR_COUNT_LENGTH);
   free(b_dir_count_length);
   
 
-  meta_offset += dir_count_length;
+  meta_offset += DIR_COUNT_LENGTH;
   ListNode * node = dir->directories->head;
   while(node!=NULL)
     { //reserve 4 bytes
-      memcpy(meta + meta_offset,"0000", 4);
-      meta_offset+=4;
+      memcpy(meta + meta_offset,"0000", DIR_NAME_LENGTH);
+      meta_offset += DIR_NAME_LENGTH;
       node = node->next;
     }
 
-  unsigned char * b_file_count_length = int_to_bytes(dir->files->length, 2);
-  memcpy(meta + meta_offset, b_file_count_length, file_count_length);
-
-  meta_offset += file_count_length;
+  unsigned char * b_file_count_length = int_to_bytes(dir->files->length, FILE_COUNT_LENGTH);
+  memcpy(meta + meta_offset, b_file_count_length, FILE_COUNT_LENGTH);
+  free(b_file_count_length);
+  meta_offset += FILE_COUNT_LENGTH;
   node = dir->files->head;
   while(node!=NULL)
     { //reserve 4 bytes
-      memcpy(meta + meta_offset,"0000", 4);
-      meta_offset +=4;
+      memcpy(meta + meta_offset,"0000", FILE_NAME_LENGTH);
+      meta_offset += FILE_NAME_LENGTH;
       node = node->next;
     }
   return meta;
@@ -310,12 +318,15 @@ create_dir_meta(struct directory * dir, int * meta_size)
 void
 add_file_offset_meta(char * meta, int file_offset, int pos)
 {
-  int path_size = bytes_to_int(meta,2);
-  meta += 2 + path_size;
-  int dir_count = bytes_to_int(meta,2);
-  meta += 2 + (4*dir_count) + 2 + (4*pos);
-  unsigned char * b_file_offset = int_to_bytes(file_offset, 4);
-  strncpy(meta, b_file_offset, 4);
+  int path_size = bytes_to_int(meta, PATH_SIZE_LENGTH);
+  meta += PATH_SIZE_LENGTH + path_size;
+
+  int dir_count = bytes_to_int(meta, DIR_COUNT_LENGTH);
+  meta += DIR_COUNT_LENGTH + (DIR_NAME_LENGTH*dir_count)
+          + FILE_COUNT_LENGTH + (FILE_NAME_LENGTH * pos);
+
+  unsigned char * b_file_offset = int_to_bytes(file_offset, FILE_NAME_LENGTH);
+  strncpy(meta, b_file_offset, FILE_NAME_LENGTH);
   free(b_file_offset);
 }
 
@@ -333,10 +344,12 @@ add_file_offset_meta(char * meta, int file_offset, int pos)
 void
 add_dir_offset_meta(char * meta, int dir_offset, int pos)
 {
-  int path_size =  bytes_to_int(meta,2);
-  meta += 2 + path_size + 2 + (4*pos);
-  unsigned char * b_dir_offset = int_to_bytes(dir_offset, 4);
-  strncpy(meta, b_dir_offset, 4);
+  int path_size =  bytes_to_int(meta,PATH_SIZE_LENGTH);
+  meta += PATH_SIZE_LENGTH + path_size 
+          + DIR_COUNT_LENGTH + (DIR_NAME_LENGTH * pos);
+
+  unsigned char * b_dir_offset = int_to_bytes(dir_offset, DIR_NAME_LENGTH);
+  strncpy(meta, b_dir_offset, DIR_NAME_LENGTH);
   free(b_dir_offset);
 }
 
@@ -349,11 +362,11 @@ int_to_bytes(int integer, int num_of_bytes)
     return NULL;
 
   unsigned char * bytes_array =(unsigned char *)malloc(num_of_bytes);
-  int i, shift = (num_of_bytes - 1) * 8;
+  int i, shift = (num_of_bytes - 1) * BYTE;
   for (i = 0; i< num_of_bytes; i++)
     {
       bytes_array[i] = integer >> shift;
-      shift-=8;
+      shift -= BYTE;
     }
   return bytes_array;
 }
@@ -365,11 +378,11 @@ bytes_to_int(unsigned char * bytes, int num_of_bytes)
     return 0;
 
   int integer = 0;
-  int i, shift = (num_of_bytes - 1) * 8;
+  int i, shift = (num_of_bytes - 1) * BYTE;
   for (i = 0; i< num_of_bytes; i++)
     {
       integer |= (bytes[i] << shift);
-      shift -= 8;
+      shift -= BYTE;
     }
   return integer;
 }
@@ -381,21 +394,14 @@ main(int argc, char * argv[])
   int freeable = 0;
   if (argc < 2)
     {
-      dir_name = "../test";
-    // error("No Directory path given, exiting now.");
-    // return EXIT_FAILURE;
+    error("No Directory path given, exiting now.");
+    return EXIT_FAILURE;
+    }
 
-    }
-  else
-    {
-      dir_name = malloc(strlen(argv[1]) + 1);
-      strcpy(dir_name, argv[1]);
-      freeable = 1;
-    }
+  dir_name = malloc(strlen(argv[1]) + 1);
+  strcpy(dir_name, argv[1]);
+
   create_cripta(dir_name);
-
-  if (freeable)
-    free(dir_name);
-
+  free(dir_name);
   return EXIT_SUCCESS;
 }

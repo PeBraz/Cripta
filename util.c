@@ -1,49 +1,16 @@
-//#include <openssl/md5.h>
-//#include <string.h>
-/*
-unsigned char * MD5(const unsigned char * d, unsigned long n,
-					 unsigned char * md)
-*/
-//unsigned char * hash = malloc(sizeof(MD5_DIGEST_LENGTH));
-//MD5( strlen(msg), msg,hash)
-//free(hash);
-
-//////////////////
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include "util.h"
 #include <openssl/evp.h>
+#include <time.h>
 
-int
-main()
-{
+#include "util.h"
+
+#define RAND_PART_SIZE 10
 
 
-	char * scan_msg; 
-	puts("Write a test message:\n");
-	scanf("%s", scan_msg);
-
-	char * msg = malloc(strlen(scan_msg) + 1);	//free
-	strcpy(msg, scan_msg);
-
-	int len;
-	unsigned char * hash = get_hash(msg, &len);
-
-	printf("Digest for msg is: ");
-	int i;
-	for(i = 0; i < len; i++)
-	        printf("%02x", hash[i]);
-
-	printf("\n");
-
-	free(msg);
-	free(hash);
-	return 0;
-}
 /**
-*	SHA1 to be used for single file and full file verification
+*	SHA2 to be used for single file and full file verification
 *
 **/
 unsigned char *
@@ -61,23 +28,93 @@ get_hash(char * message, int * length)
 	EVP_DigestFinal(mdctx, hash,length);
 	EVP_cleanup();
 
-	return  hash;
+	return hash;
 }
+
+//
+//	rand_number_as_string - generates a variable sized number as a string, 
+//		all characters will be ascii numbers
+//	
+//	WARNING: initialize srand before using this
+//	@param	size 	of the string to be generated
+//	@return			generated random string	
+//
+
+char *
+rand_number_as_string(int size)
+{	
+  char * part = malloc(RAND_PART_SIZE + 1);
+  char * full_string = malloc(size + 1);
+  strcpy(full_string,"");
+  int off, i;
+  //do 10 padding (RAND_MAX can have up to 10 houses)
+  for (i=size, off=0; i > 0; off+=RAND_PART_SIZE, i -= RAND_PART_SIZE)
+    {
+  	sprintf(part,"%010u",rand());
+  	memcpy(full_string + off, part, (i > RAND_PART_SIZE) ? RAND_PART_SIZE : i);
+    }
+  full_string[size] = '\0';
+  free(part);
+  return full_string;
+}
+
 
 
 unsigned char *
-get_test_hash()
+encrypt_content(char * content, int length)
 {
-	return "00000000000000000000000000000000";
-}
 
-char *
-read_full_file(FILE * f)
-{
-	fseek(f, 0, SEEK_END);
-	int length = ftell(f);
-	rewind(f);
-	char * data = malloc(length + 1);
-	fread(data, sizeof(char), length, f);
-	return data;
+
+
+
+
 }
+//http://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
+//taken from https://www.openssl.org/docs/crypto/EVP_EncryptInit.html
+int do_crypt(char * in, char * out, int do_encrypt, char * passphrase)
+        {
+        /* Allow enough space in output buffer for additional block */
+        unsigned char inbuf[1024], outbuf[1024 + EVP_MAX_BLOCK_LENGTH];
+        srand((unsigned int)time(NULL));
+
+        int inlen, outlen;
+        EVP_CIPHER_CTX ctx;
+        /* Bogus key and IV: we'd normally set these from
+         * another source.
+         */
+        unsigned char key[] = "0123456789abcdeF";
+        unsigned char iv[] = "1234567887654321";
+
+        /* Don't set key or IV right away; we want to check lengths */
+        EVP_CIPHER_CTX_init(&ctx);
+        EVP_CipherInit_ex(&ctx, EVP_aes_128_cbc(), NULL, NULL, NULL,
+                do_encrypt);
+        OPENSSL_assert(EVP_CIPHER_CTX_key_length(&ctx) == 16);
+        OPENSSL_assert(EVP_CIPHER_CTX_iv_length(&ctx) == 16);
+
+        /* Now we can set key and IV */
+        EVP_CipherInit_ex(&ctx, NULL, NULL, key, iv, do_encrypt);
+
+        for(;;)
+                {
+                inlen = fread(inbuf, 1, 1024, in);
+                if(inlen <= 0) break;
+                if(!EVP_CipherUpdate(&ctx, outbuf, &outlen, inbuf, inlen))
+                        {
+                        /* Error */
+                        EVP_CIPHER_CTX_cleanup(&ctx);
+                        return 0;
+                        }
+                fwrite(outbuf, 1, outlen, out);
+                }
+        if(!EVP_CipherFinal_ex(&ctx, outbuf, &outlen))
+                {
+                /* Error */
+                EVP_CIPHER_CTX_cleanup(&ctx);
+                return 0;
+                }
+        fwrite(outbuf, 1, outlen, out);
+
+        EVP_CIPHER_CTX_cleanup(&ctx);
+        return 1;
+        }
