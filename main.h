@@ -28,7 +28,7 @@ List * list_dir(char*);
 
 void * string(char*);
 
-char * read_full_file(char*);
+char * read_full_file(char*,int*);
 
 void file_write(char*);
 

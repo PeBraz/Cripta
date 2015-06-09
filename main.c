@@ -4,9 +4,10 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <stdarg.h>
-#include "main.h"
 
-#define error(s) printf("[Error]:%s\n",s)
+#include "main.h"
+#include "util.h"
+
 
 //num of bytes reserved for writing a meta file
 /* full space used to write the path name */
@@ -26,8 +27,8 @@
 /* paddings to be added to Directory and file, needs to have same size
  * as DIR_NAME_LENGTH and FILE_NAME_LENGTH
  */
-#define DIR_NAME_PADDING "0000"
-#define FILE_NAME_PADDING "0000"
+#define DIR_OFFSET_PADDING "0000"
+#define FILE_OFFSET_PADDING "0000"
 char * concat_path(char*, char*);
 
 
@@ -109,16 +110,16 @@ string(char * old_str)
 
 
 char *
-read_full_file(char * filename)
+read_full_file(char * filename, int * length)
 {
   FILE * f = fopen(filename, "r");
   fseek(f, 0, SEEK_END);
-  int length = ftell(f);
+  *length = ftell(f);
   rewind(f);
-  char * data = malloc(length + 1);
-  fread(data, sizeof(char),length, f);
+  char * data = malloc(*length + 1);
+  fread(data, sizeof(char),*length, f);
   fclose(f);
-  data[length] = '\0';
+  data[*length] = '\0';
   return data;
 }
 
@@ -130,7 +131,7 @@ read_full_file(char * filename)
 //  and access a freed subdir and it would lead to a seg fault.
 //
 //  @param  dir  the directory to be freed   
-//
+//ad_fi
 void
 directory_free(struct directory * dir)
 {
@@ -208,24 +209,35 @@ create_cripta_with_father(struct directory * dir, FILE * file)
   ListNode * node = dir->directories->head;
   while (node != NULL)
     { //Recursively write each directories information into the same file
-      add_dir_offset_meta(my_meta, ftell(file), dirNumber++);
-      create_cripta_with_father((struct directory *)node->data, file);
-      node = node->next;
+    add_dir_offset_meta(my_meta, ftell(file), dirNumber++);
+    create_cripta_with_father((struct directory *)node->data, file);
+    node = node->next;
     }
 
   node = dir->files->head;
-  int fileNumber = 0;
-  char * file_content;
+  int fileNumber = 0, file_size;
+  unsigned char * file_content, * hash;
   while (node != NULL)
     {
-      //writes the file in the cripta file and updates the directory meta that points to it
-      //write_cripta_file((char *)node->data, father_meta);
-      add_file_offset_meta(my_meta, ftell(file), fileNumber++);
-      file_content = read_full_file((char*)node->data);
-      fwrite(file_content, sizeof(char), strlen(file_content), file);
-      free(file_content);
-      node = node->next;
+    //writes the file in the cripta file and updates the directory meta that points to it
+    //the file is composed of a md5 hash (32bytes)
+    //write_cripta_file((char *)node->data, father_meta);
+    add_file_offset_meta(my_meta, ftell(file), fileNumber++);
+
+    file_content = read_full_file((char*)node->data, &file_size);
+    hash = get_hash(file_content, file_size);
+
+    fwrite(hash, sizeof(unsigned char), MD5_SIZE, file);
+    fwrite(file_content, sizeof(char), file_size, file);
+      
+    free(hash);
+    free(file_content);
+
+    node = node->next;
     }
+  //after all the files write the last file size 
+  //for when reading the file, you know its size
+  add_file_offset_meta(my_meta, ftell(file), fileNumber);
 
   //after all files and dirs seen, write the directory meta fully updated
   fseek(file, dir_meta_position, SEEK_SET);
@@ -245,7 +257,6 @@ create_cripta_with_father(struct directory * dir, FILE * file)
 //  4 - directories offset - xdirectories (4bytes each)
 //  5 - number of files - 2 bytes
 //  6 - files offset - xfiles (4bytes each)
-//
 //  @param    dir   the directory correspondent to the meta to create
 //  @return         the meta as a string
 //
@@ -261,7 +272,7 @@ create_dir_meta(struct directory * dir, int * meta_size)
   const int path_name_length = strlen(dir->name);
   *meta_size = PATH_SIZE_LENGTH + path_name_length
           + DIR_COUNT_LENGTH + (DIR_NAME_LENGTH * dir->directories->length)  
-          + FILE_COUNT_LENGTH + (FILE_NAME_LENGTH * dir->files->length)
+          + FILE_COUNT_LENGTH + (FILE_NAME_LENGTH * (dir->files->length + 1))
           + 1;
 
   int meta_offset = 0;
@@ -282,12 +293,11 @@ create_dir_meta(struct directory * dir, int * meta_size)
   memcpy(meta + meta_offset, b_dir_count_length, DIR_COUNT_LENGTH);
   free(b_dir_count_length);
   
-
   meta_offset += DIR_COUNT_LENGTH;
   ListNode * node = dir->directories->head;
   while(node!=NULL)
     { //reserve 4 bytes
-      memcpy(meta + meta_offset,"0000", DIR_NAME_LENGTH);
+      memcpy(meta + meta_offset,DIR_OFFSET_PADDING, DIR_NAME_LENGTH);
       meta_offset += DIR_NAME_LENGTH;
       node = node->next;
     }
@@ -295,14 +305,22 @@ create_dir_meta(struct directory * dir, int * meta_size)
   unsigned char * b_file_count_length = int_to_bytes(dir->files->length, FILE_COUNT_LENGTH);
   memcpy(meta + meta_offset, b_file_count_length, FILE_COUNT_LENGTH);
   free(b_file_count_length);
+
   meta_offset += FILE_COUNT_LENGTH;
   node = dir->files->head;
   while(node!=NULL)
     { //reserve 4 bytes
-      memcpy(meta + meta_offset,"0000", FILE_NAME_LENGTH);
+      memcpy(meta + meta_offset, FILE_OFFSET_PADDING, FILE_NAME_LENGTH);
       meta_offset += FILE_NAME_LENGTH;
       node = node->next;
     }
+      //space for the last file size  
+  if (dir->files->length > 0)
+    {
+      memcpy(meta + meta_offset, FILE_OFFSET_PADDING, FILE_NAME_LENGTH);
+      meta_offset += FILE_NAME_LENGTH;
+    }
+
   return meta;
 }
 
@@ -314,7 +332,7 @@ create_dir_meta(struct directory * dir, int * meta_size)
 //  @param file_offset  the offset to write in the string in bytes
 //  @param pos          the position in the files to store the offset
 //
-//  TODO: fix the magical numbers (they are byte sizes)
+//
 void
 add_file_offset_meta(char * meta, int file_offset, int pos)
 {
@@ -326,7 +344,7 @@ add_file_offset_meta(char * meta, int file_offset, int pos)
           + FILE_COUNT_LENGTH + (FILE_NAME_LENGTH * pos);
 
   unsigned char * b_file_offset = int_to_bytes(file_offset, FILE_NAME_LENGTH);
-  strncpy(meta, b_file_offset, FILE_NAME_LENGTH);
+  memcpy(meta, b_file_offset, FILE_NAME_LENGTH);
   free(b_file_offset);
 }
 
@@ -340,7 +358,6 @@ add_file_offset_meta(char * meta, int file_offset, int pos)
 //  @param pos          the position in the directories to store the offset
 //
 //
-//  TODO: fix the magical numbers (they are byte sizes)
 void
 add_dir_offset_meta(char * meta, int dir_offset, int pos)
 {
@@ -349,9 +366,11 @@ add_dir_offset_meta(char * meta, int dir_offset, int pos)
           + DIR_COUNT_LENGTH + (DIR_NAME_LENGTH * pos);
 
   unsigned char * b_dir_offset = int_to_bytes(dir_offset, DIR_NAME_LENGTH);
-  strncpy(meta, b_dir_offset, DIR_NAME_LENGTH);
+  memcpy(meta, b_dir_offset, DIR_NAME_LENGTH);
   free(b_dir_offset);
 }
+
+
 
 
 //is this really needed ?
@@ -386,6 +405,78 @@ bytes_to_int(unsigned char * bytes, int num_of_bytes)
     }
   return integer;
 }
+
+void
+read_cripta(char * cripta_name)
+{
+  FILE * cripta = fopen(cripta_name, "r");
+
+}
+
+typedef struct cripta_directory_struct
+{
+  char * name;
+  List * directories  //list of offsets
+  List * files; //list of offsets
+} cripta_dir;
+
+// 
+// The size of the file is the difference between the offset of the next file 
+// and the current file (without the hash (-32bytes)),
+//
+struct directory * 
+read_cripta_dir(FILE * cripta)
+{
+
+  
+  unsigned char b_path_length[PATH_SIZE_LENGTH];
+
+  fread(&b_path_length, PATH_SIZE_LENGTH, sizeof(unsigned char), cripta);
+  int path_name_length = bytes_to_int(b_path_length, PATH_SIZE_LENGTH);
+
+  char * root_path_name = malloc(path_name_length + 1);
+  fread(root_path_name, path_name_length, sizeof(unsigned char), cripta);
+  root_path_name[path_name_length] = '\0';
+
+
+  int num_dirs;
+  unsigned char b_num_dirs[DIR_COUNT_LENGTH], b_offset_dir[DIR_NAME_LENGTH];
+  fread(&b_num_dirs, DIR_COUNT_LENGTH, sizeof(unsigned char), cripta);
+  int num_dirs = bytes_to_int(b_num_dirs, DIR_COUNT_LENGTH);
+
+  List * dir_list = new_list(int_cmp);
+  int i, * tmp; //forgive me ancestrals of coding, bacause I have sinned
+  for (i=0; i < num_dirs; i++)
+    {
+      fread(&b_offset_dir, DIR_NAME_LENGTH, sizeof(unsigned char), cripta);
+      tmp = malloc(sizeof(int));
+      *tmp = bytes_to_int(b_offset_dir, DIR_NAME_LENGTH);
+      list_add(dir_list, tmp);
+    }
+
+
+    //complete me
+
+
+  int num_files;
+  unsigned char b_num_files[FILE_COUNT_LENGTH];
+  fread(&b_num_files, FILE_COUNT_LENGTH, sizeof(unsigned char), cripta);
+  int num_files = bytes_to_int(b_num_files, FILE_COUNT_LENGTH);
+
+  List * file_list = new_list(int_cmp);
+
+
+
+  cripta_dir * crip_dir = malloc(sizeof(crip_dir));
+  crip_dir->offset = 0;
+  crip_dir->name = root_path_name;
+  crip_dir->directories = dir_list;
+  crip_dir->files = file_list;
+  return crip_dir;
+}
+
+
+
 
 int
 main(int argc, char * argv[])

@@ -1,6 +1,13 @@
 #ifndef UTIL_H
 #define UTIL_H
 
-unsigned char * get_hash(char *,int*);
+
+#define MD5_SIZE 32
+
+#define error(s) fprintf(stderr, "[Error]:%s\n",s)
+
+unsigned char * get_hash(unsigned char *,int);
+
+int validate(unsigned char *, unsigned char *, size_t);
 
 #endif
