@@ -33,6 +33,13 @@ list_get(List * list, void * ele)
 }
 
 void *
+list_pop(List * list)
+{
+    return list->head != NULL ?  list_remove(list, list->head->data) : NULL;
+}
+
+
+void *
 list_remove(List * list, void * ele)
 {
 

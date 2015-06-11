@@ -294,8 +294,8 @@ create_dir_meta(struct directory * dir, int * meta_size)
   free(b_dir_count_length);
   
   meta_offset += DIR_COUNT_LENGTH;
-  int i = 0;
-  while(i < dir->directories->length)
+  int i;
+  for(i = 0; i < dir->directories->length; i++)
     { //reserve 4 bytes
       memcpy(meta + meta_offset,DIR_OFFSET_PADDING, DIR_NAME_LENGTH);
       meta_offset += DIR_NAME_LENGTH;
@@ -307,8 +307,8 @@ create_dir_meta(struct directory * dir, int * meta_size)
   free(b_file_count_length);
 
   meta_offset += FILE_COUNT_LENGTH;
-  int j = 0;
-  while(j < dir->files->length + 1)
+  int j;
+  for(j = 0; j < dir->files->length + 1; j++)
     { //reserve 4 bytes
       memcpy(meta + meta_offset, FILE_OFFSET_PADDING, FILE_NAME_LENGTH);
       meta_offset += FILE_NAME_LENGTH;
@@ -401,12 +401,6 @@ bytes_to_int(unsigned char * bytes, int num_of_bytes)
 
 
 
-typedef struct cripta_directory_struct
-{
-  char * name;
-  List * directories  //list of offsets
-  List * files; //list of offsets
-} cripta_dir;
 
 // 
 // The size of the file is the difference between the offset of the next file 
@@ -425,52 +419,80 @@ read_cripta_dir(FILE * cripta)
   fread(root_path_name, path_name_length, sizeof(unsigned char), cripta);
   root_path_name[path_name_length] = '\0';
 
-
-  int num_dirs;
   unsigned char b_num_dirs[DIR_COUNT_LENGTH], b_offset_dir[DIR_NAME_LENGTH];
-  fread(&b_num_dirs, DIR_COUNT_LENGTH, sizeof(unsigned char), cripta);
+  fread(b_num_dirs, DIR_COUNT_LENGTH, sizeof(unsigned char), cripta);
   int num_dirs = bytes_to_int(b_num_dirs, DIR_COUNT_LENGTH);
 
 
-  List * dir_list = new_list(NULL);
+  List * dir_list = list_new(NULL);
   int i;
   int checkpoint_index;
   for (i=0; i < num_dirs; i++)
     {
       //call read_cripta_dir() recursovely for each directory offset    
-      fread(&b_offset_dir, DIR_NAME_LENGTH, sizeof(unsigned char), cripta);
+      fread(b_offset_dir, DIR_NAME_LENGTH, sizeof(unsigned char), cripta);
       checkpoint_index = ftell(cripta);
-      fseek(cripta, bytes_to_int(&b_offset_dir, DIR_NAME_LENGTH), SEEK_SET);
+      fseek(cripta, bytes_to_int(b_offset_dir, DIR_NAME_LENGTH), SEEK_SET);
       list_add(dir_list, read_cripta_dir(cripta));
       fseek(cripta, checkpoint_index, SEEK_SET);
     }
 
 
-  int num_files;
   unsigned char b_num_files[FILE_COUNT_LENGTH], b_offset_file[FILE_NAME_LENGTH];
-  fread(&b_num_files, FILE_COUNT_LENGTH, sizeof(unsigned char), cripta);
+  fread(b_num_files, FILE_COUNT_LENGTH, sizeof(unsigned char), cripta);
   int num_files = bytes_to_int(b_num_files, FILE_COUNT_LENGTH);
 
-  int j, tmp2;  
-  List * file_list = new_list(int_cmp);
+  int j,* tmp2;  
+  List * file_list = list_new(int_cmp);
   for (i=0; i < num_files; i++)
     {
-      fread(&b_offset_file, FILE_NAME_LENGTH, sizeof(unsigned char), cripta);
+      fread(b_offset_file, FILE_NAME_LENGTH, sizeof(unsigned char), cripta);
       tmp2 = malloc(sizeof(int));
-      *tmp2 = bytes_to_int(&b_offset_file, FILE_NAME_LENGTH);
-      list_add(file_list, tmp2)
+      *tmp2 = bytes_to_int(b_offset_file, FILE_NAME_LENGTH);
+      list_add(file_list, tmp2);
     }
 
-  cripta_dir * crip_dir = malloc(sizeof(crip_dir));
+  struct directory * crip_dir = malloc(sizeof(struct directory));
   crip_dir->name = root_path_name;
   crip_dir->directories = dir_list;
   crip_dir->files = file_list;
 
-  //return to file initial position before returning 
-  //fseek(cripta, cripta_initial_index, SEEK_SET);
-
   return crip_dir;
 }
+
+//
+//  Receives the directory and the name of the path of the dir
+//
+int dir_cmp(const void * dir, const void * name)
+{
+  return strcmp(((struct directory*)dir)->name, (char*)name);
+}
+
+
+void print_dirs(struct directory * dir)
+{
+  ListNode * node = dir->directories->head;
+  while (node!= NULL)
+  {
+    printf("%s\n", ((struct directory *)node->data)->name);
+    node = node->next;
+  }
+  node = dir->files->head;
+  while (node != NULL)
+  {
+    printf("%d\n", *(int*)node->data);
+    node = node->next;
+  }
+  puts(">back\n>exit");
+}
+
+void
+help()
+{
+  puts("cripta -c <path>\t\t encrypt a file into a CRIPTA");
+  puts("cripta -d <file>\t\t starts read CRIPTA file mode");
+}
+
 
 void
 _cmd(char * cripta_name)
@@ -481,11 +503,43 @@ _cmd(char * cripta_name)
   if (cripta == NULL)
     error("FILE NOT FOUND");
 
-  struct directory * dirs = read_cripta_dir(cripta);
+  List * stack = list_new(dir_cmp); 
 
-//  char buffer[1024];
-//need to implement a stack with the list to be able to go back paths 
-//(hard parth should be popping) make an abastraction using list, but push and pop
+  struct directory * dirs = read_cripta_dir(cripta);
+  struct directory * dir_free = dirs; //used for cleaning the entire structure
+  char buffer[1024];
+
+  void * data;
+  while (1)
+    {
+      print_dirs(dirs);
+      printf(">> ");
+      fgets(buffer, sizeof(buffer), stdin);
+      buffer[strlen(buffer)-1] = '\0';
+
+      if (strcmp(buffer, "back") == 0)
+        {
+          if (dirs->directories->head != NULL)
+            dirs = (struct directory *)list_pop(dirs->directories);
+          else puts("Already at root");
+        }
+      else if (strcmp(buffer, "exit") == 0)
+        {
+          return;
+        }
+      else if ((data = list_get(dirs->directories, buffer)) != NULL)
+        {
+          list_add(stack, dirs);
+          dirs = (struct directory *)data; 
+        }
+      else
+      {
+        puts("Invalid directory.");
+      }
+    }
+
+    free(dir_free);
+    fclose(cripta);
 }
 
 
@@ -496,14 +550,40 @@ main(int argc, char * argv[])
   int freeable = 0;
   if (argc < 2)
     {
-    error("No Directory path given, exiting now.");
+    help();
     return EXIT_FAILURE;
     }
 
-  dir_name = malloc(strlen(argv[1]) + 1);
-  strcpy(dir_name, argv[1]);
+  int i;
+  char * flag;
+  for (i = 1; i < argc; i+=2)
+    { 
+    flag = argv[i];
+    if (strlen(flag) != 2 || flag[0] != '-')
+      {
+      help();
+      return EXIT_SUCCESS;
+      }
+    dir_name = malloc(strlen(argv[i+1]) + 1);
+    strcpy(dir_name, argv[i+1]);
 
-  create_cripta(dir_name);
-  free(dir_name);
-  return EXIT_SUCCESS;
+    switch (flag[1])
+      {
+      case 'c':
+        create_cripta(dir_name);
+        break;
+
+      case 'd':
+        _cmd(dir_name);
+        break;
+
+      default:
+        help();
+      }
+
+    free(dir_name);
+    }
+  
+return EXIT_SUCCESS;
+
 }

@@ -1,14 +1,14 @@
 CC=gcc
 XNAME=cripta
 all: list.o main.o util.o
-	${CC} -g -o ${XNAME} list.o main.o util.o -lssl -lcrypto
+	${CC} -o ${XNAME} list.o main.o util.o -lssl -lcrypto
 
 main.o:
-	${CC} -c main.c
+	${CC} -g -c main.c
 list.o:
-	${CC} -c list.c
+	${CC} -g -c list.c
 util.o:
-	${CC} -c util.c
+	${CC} -g -c util.c
 
 val: all
 	valgrind --leak-check=full ./${XNAME} .
