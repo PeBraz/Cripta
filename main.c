@@ -294,29 +294,22 @@ create_dir_meta(struct directory * dir, int * meta_size)
   free(b_dir_count_length);
   
   meta_offset += DIR_COUNT_LENGTH;
-  ListNode * node = dir->directories->head;
-  while(node!=NULL)
+  int i = 0;
+  while(i < dir->directories->length)
     { //reserve 4 bytes
       memcpy(meta + meta_offset,DIR_OFFSET_PADDING, DIR_NAME_LENGTH);
       meta_offset += DIR_NAME_LENGTH;
-      node = node->next;
     }
 
-  unsigned char * b_file_count_length = int_to_bytes(dir->files->length, FILE_COUNT_LENGTH);
+  //note: you needs 1 extra space to accomodate the size of the last file in the list
+  unsigned char * b_file_count_length = int_to_bytes(dir->files->length + 1, FILE_COUNT_LENGTH);
   memcpy(meta + meta_offset, b_file_count_length, FILE_COUNT_LENGTH);
   free(b_file_count_length);
 
   meta_offset += FILE_COUNT_LENGTH;
-  node = dir->files->head;
-  while(node!=NULL)
+  int j = 0;
+  while(j < dir->files->length + 1)
     { //reserve 4 bytes
-      memcpy(meta + meta_offset, FILE_OFFSET_PADDING, FILE_NAME_LENGTH);
-      meta_offset += FILE_NAME_LENGTH;
-      node = node->next;
-    }
-      //space for the last file size  
-  if (dir->files->length > 0)
-    {
       memcpy(meta + meta_offset, FILE_OFFSET_PADDING, FILE_NAME_LENGTH);
       meta_offset += FILE_NAME_LENGTH;
     }
@@ -406,12 +399,7 @@ bytes_to_int(unsigned char * bytes, int num_of_bytes)
   return integer;
 }
 
-void
-read_cripta(char * cripta_name)
-{
-  FILE * cripta = fopen(cripta_name, "r");
 
-}
 
 typedef struct cripta_directory_struct
 {
@@ -427,7 +415,6 @@ typedef struct cripta_directory_struct
 struct directory * 
 read_cripta_dir(FILE * cripta)
 {
-
   
   unsigned char b_path_length[PATH_SIZE_LENGTH];
 
@@ -444,38 +431,62 @@ read_cripta_dir(FILE * cripta)
   fread(&b_num_dirs, DIR_COUNT_LENGTH, sizeof(unsigned char), cripta);
   int num_dirs = bytes_to_int(b_num_dirs, DIR_COUNT_LENGTH);
 
-  List * dir_list = new_list(int_cmp);
-  int i, * tmp; //forgive me ancestrals of coding, bacause I have sinned
+
+  List * dir_list = new_list(NULL);
+  int i;
+  int checkpoint_index;
   for (i=0; i < num_dirs; i++)
     {
+      //call read_cripta_dir() recursovely for each directory offset    
       fread(&b_offset_dir, DIR_NAME_LENGTH, sizeof(unsigned char), cripta);
-      tmp = malloc(sizeof(int));
-      *tmp = bytes_to_int(b_offset_dir, DIR_NAME_LENGTH);
-      list_add(dir_list, tmp);
+      checkpoint_index = ftell(cripta);
+      fseek(cripta, bytes_to_int(&b_offset_dir, DIR_NAME_LENGTH), SEEK_SET);
+      list_add(dir_list, read_cripta_dir(cripta));
+      fseek(cripta, checkpoint_index, SEEK_SET);
     }
 
 
-    //complete me
-
-
   int num_files;
-  unsigned char b_num_files[FILE_COUNT_LENGTH];
+  unsigned char b_num_files[FILE_COUNT_LENGTH], b_offset_file[FILE_NAME_LENGTH];
   fread(&b_num_files, FILE_COUNT_LENGTH, sizeof(unsigned char), cripta);
   int num_files = bytes_to_int(b_num_files, FILE_COUNT_LENGTH);
 
+  int j, tmp2;  
   List * file_list = new_list(int_cmp);
-
-
+  for (i=0; i < num_files; i++)
+    {
+      fread(&b_offset_file, FILE_NAME_LENGTH, sizeof(unsigned char), cripta);
+      tmp2 = malloc(sizeof(int));
+      *tmp2 = bytes_to_int(&b_offset_file, FILE_NAME_LENGTH);
+      list_add(file_list, tmp2)
+    }
 
   cripta_dir * crip_dir = malloc(sizeof(crip_dir));
-  crip_dir->offset = 0;
   crip_dir->name = root_path_name;
   crip_dir->directories = dir_list;
   crip_dir->files = file_list;
+
+  //return to file initial position before returning 
+  //fseek(cripta, cripta_initial_index, SEEK_SET);
+
   return crip_dir;
 }
 
+void
+_cmd(char * cripta_name)
+{
 
+
+  FILE * cripta = fopen(cripta_name, "r");
+  if (cripta == NULL)
+    error("FILE NOT FOUND");
+
+  struct directory * dirs = read_cripta_dir(cripta);
+
+//  char buffer[1024];
+//need to implement a stack with the list to be able to go back paths 
+//(hard parth should be popping) make an abastraction using list, but push and pop
+}
 
 
 int
