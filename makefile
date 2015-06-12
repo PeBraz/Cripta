@@ -13,4 +13,4 @@ util.o:
 val: all
 	valgrind --leak-check=full ./${XNAME} .
 clean:
-	rm main.o list.o util.o cripta
+	rm main.o list.o util.o cripta *_CRIPTA

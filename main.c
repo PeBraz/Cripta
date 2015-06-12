@@ -167,6 +167,20 @@ concat_path(char * path_prefix, char * path_sufix)
   return full_path;
 }
 
+//
+//  path_leaf - returns the last element in the path, pointing to the path after the last '/''
+//
+char *
+path_leaf(char * path)
+{
+  char * prev_tok = NULL;
+  char * token = strtok(path, "/");
+  while(token != NULL) {
+    prev_tok = token;
+    token = strtok(NULL, "/");
+  }
+  return prev_tok;
+}
 
 //  
 //
@@ -180,7 +194,7 @@ create_cripta(char * path)
   //create new file
   char * new_file_name = malloc(strlen(path) + strlen(file_name_suffix) + 1);
   sprintf(new_file_name, "%s%s", path, file_name_suffix);
-  FILE * new_f = fopen(new_file_name, "w+");
+  FILE * new_f = fopen(path_leaf(new_file_name), "w+");
   free(new_file_name);
 
   //initiate srand for dealing with encryption (so that it doesn't suck)
@@ -234,9 +248,6 @@ create_cripta_with_father(struct directory * dir, FILE * file)
     free(file_array);
     node = node->next;
     }
-  //after all the files write the last file size 
-  //for when reading the file, you know its size
-  add_file_offset_meta(my_meta, ftell(file), fileNumber);
 
   //after all files and dirs seen, write the directory meta fully updated
   fseek(file, dir_meta_position, SEEK_SET);
@@ -272,13 +283,12 @@ write_cripta_file(char * path, int * size)
     char * file_content = read_full_file(path, &file_size);
     unsigned char * hash = get_hash(file_content, file_size);
     
-    unsigned char b_file_name_length[FILE_NAME_LENGTH];
-    memcpy(b_file_name_length,int_to_bytes(filename_size, FILE_NAME_LENGTH), FILE_NAME_LENGTH);
+    unsigned char * b_file_name_length = int_to_bytes(filename_size, FILE_NAME_LENGTH);
 
     *size = FILE_NAME_LENGTH + filename_size 
-            + MD5_SIZE + strlen(file_content);
-    unsigned char b_file_size_length[FILE_SIZE_LENGTH];
-    memcpy(b_file_size_length, int_to_bytes(*size, FILE_SIZE_LENGTH), FILE_NAME_LENGTH);
+            + MD5_SIZE + FILE_SIZE_LENGTH + strlen(file_content);
+
+    unsigned char * b_file_size_length = int_to_bytes(*size, FILE_SIZE_LENGTH);
 
     unsigned char * file_array = malloc(*size);
     //length of the filename
@@ -294,6 +304,8 @@ write_cripta_file(char * path, int * size)
     memcpy(file_array + FILE_NAME_LENGTH + filename_size + MD5_SIZE + FILE_SIZE_LENGTH,
             file_content, file_size);
 
+    free(b_file_name_length);
+    free(b_file_size_length);
     free(file_content);
     free(hash);
     return file_array;
