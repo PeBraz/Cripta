@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <stdarg.h>
+#include <time.h>
 
 #include "main.h"
 #include "util.h"
@@ -16,16 +17,18 @@
 #define DIR_COUNT_LENGTH 2  
 #define FILE_COUNT_LENGTH 2 
 /* bytes used to write the offset to a directory/file within the cripta*/
-#define DIR_NAME_LENGTH 4
-#define FILE_NAME_LENGTH 4
-/* bytes reserved for a hash */
-#define HASH_LENGTH 32
-
+#define DIR_OFFSET_LENGTH 4
+#define FILE_OFFSET_LENGTH 4
+/* bytes used for the length of the name of a directory/file */
+#define DIR_NAME_LENGTH 2
+#define FILE_NAME_LENGTH 2
+/* bytes used for the length of the body of al file */
+#define FILE_SIZE_LENGTH 4
 /* number of bits in a byte */
 #define BYTE 8 
 
 /* paddings to be added to Directory and file, needs to have same size
- * as DIR_NAME_LENGTH and FILE_NAME_LENGTH
+ * as DIR_OFFSET_LENGTH and FILE_OFFSET_LENGTH
  */
 #define DIR_OFFSET_PADDING "0000"
 #define FILE_OFFSET_PADDING "0000"
@@ -131,7 +134,7 @@ read_full_file(char * filename, int * length)
 //  and access a freed subdir and it would lead to a seg fault.
 //
 //  @param  dir  the directory to be freed   
-//ad_fi
+//
 void
 directory_free(struct directory * dir)
 {
@@ -180,6 +183,9 @@ create_cripta(char * path)
   FILE * new_f = fopen(new_file_name, "w+");
   free(new_file_name);
 
+  //initiate srand for dealing with encryption (so that it doesn't suck)
+  srand(time(NULL));
+
   create_cripta_with_father(dir, new_f);
 
   fclose(new_f);
@@ -200,6 +206,7 @@ create_cripta(char * path)
 void
 create_cripta_with_father(struct directory * dir, FILE * file)
 {
+
   int dir_meta_position = ftell(file);
   int meta_size;
   char * my_meta = create_dir_meta(dir, &meta_size);
@@ -216,23 +223,15 @@ create_cripta_with_father(struct directory * dir, FILE * file)
 
   node = dir->files->head;
   int fileNumber = 0, file_size;
-  unsigned char * file_content, * hash;
+  unsigned char * file_array, * hash;
   while (node != NULL)
     {
-    //writes the file in the cripta file and updates the directory meta that points to it
-    //the file is composed of a md5 hash (32bytes)
-    //write_cripta_file((char *)node->data, father_meta);
     add_file_offset_meta(my_meta, ftell(file), fileNumber++);
+    file_array = write_cripta_file((char*)node->data, &file_size);
 
-    file_content = read_full_file((char*)node->data, &file_size);
-    hash = get_hash(file_content, file_size);
-
-    fwrite(hash, sizeof(unsigned char), MD5_SIZE, file);
-    fwrite(file_content, sizeof(char), file_size, file);
+    fwrite(file_array, sizeof(unsigned char), file_size, file);
       
-    free(hash);
-    free(file_content);
-
+    free(file_array);
     node = node->next;
     }
   //after all the files write the last file size 
@@ -245,6 +244,112 @@ create_cripta_with_father(struct directory * dir, FILE * file)
   free(my_meta);
   //always append at the end of the file 
   fseek(file, 0, SEEK_END);
+}
+
+//
+//  write_cripta_file - returns the information about a file needed for it to be stored
+//    A directory meta will have the offset to a file
+//    In the file's header there will be:
+//      1) file name length - 2 bytes
+//      2) file name - (file name length)xbytes
+//      3) md5 hash
+//      4) length of the file
+//      4) content of the file
+//
+//  @param  path  that points to the file
+//  @param  size  for passing the final array size length by parameter
+//
+//  @return       a byte array with the file information 
+//                with length inserted into parameter size
+//
+unsigned char *
+write_cripta_file(char * path, int * size)
+{
+    
+    int filename_size = strlen(path);
+
+    int file_size;
+    char * file_content = read_full_file(path, &file_size);
+    unsigned char * hash = get_hash(file_content, file_size);
+    
+    unsigned char b_file_name_length[FILE_NAME_LENGTH];
+    memcpy(b_file_name_length,int_to_bytes(filename_size, FILE_NAME_LENGTH), FILE_NAME_LENGTH);
+
+    *size = FILE_NAME_LENGTH + filename_size 
+            + MD5_SIZE + strlen(file_content);
+    unsigned char b_file_size_length[FILE_SIZE_LENGTH];
+    memcpy(b_file_size_length, int_to_bytes(*size, FILE_SIZE_LENGTH), FILE_NAME_LENGTH);
+
+    unsigned char * file_array = malloc(*size);
+    //length of the filename
+    memcpy(file_array, b_file_name_length, FILE_NAME_LENGTH);
+    //filename
+    memcpy(file_array + FILE_NAME_LENGTH, path, filename_size);
+    //md5 hash
+    memcpy(file_array + FILE_NAME_LENGTH + filename_size, hash, MD5_SIZE);
+    //length of the file
+    memcpy(file_array + FILE_NAME_LENGTH + filename_size + MD5_SIZE,
+           b_file_size_length, FILE_SIZE_LENGTH);
+    //content of the file
+    memcpy(file_array + FILE_NAME_LENGTH + filename_size + MD5_SIZE + FILE_SIZE_LENGTH,
+            file_content, file_size);
+
+    free(file_content);
+    free(hash);
+    return file_array;
+
+}
+typedef struct cripta_file
+{
+  char * name;
+  unsigned char * hash;
+  int content_offset;
+  int content_size;
+
+} cripta_file;
+
+cripta_file *
+read_cripta_file(FILE * cripta)
+{
+  unsigned char b_file_name_length[FILE_NAME_LENGTH];
+  fread(b_file_name_length, sizeof(unsigned char), FILE_NAME_LENGTH, cripta);
+  int file_size = bytes_to_int(b_file_name_length, FILE_NAME_LENGTH);
+
+  char * filename = malloc(file_size + 1);
+  fread(filename, sizeof(char), file_size, cripta);
+  filename[file_size] = '\0';
+
+  unsigned char * hash = malloc(MD5_SIZE);
+  fread(hash, sizeof(unsigned char), MD5_SIZE, cripta);
+  
+  unsigned char b_file_size_length[FILE_SIZE_LENGTH];
+  fread(b_file_size_length, sizeof(unsigned char), FILE_SIZE_LENGTH, cripta);
+
+
+  cripta_file * c_file = malloc(sizeof(cripta_file));
+  c_file->name = filename;
+  c_file->hash = hash;
+  c_file->content_offset = ftell(cripta);
+  c_file->content_size = bytes_to_int(b_file_size_length, FILE_SIZE_LENGTH);
+  return c_file;
+}
+
+//
+//  create_cripta_file_content - creates a new file locally taken from the CRIPTA file
+//        Even it the hash is wrong, the file is created, but the user should be warned.
+//
+//  @returns        0 or 1 if unsucceful or successul 
+//  
+int
+create_cripta_file_content(FILE * cripta, cripta_file * file)
+{
+  unsigned char * content = malloc(file->content_size);
+  fread(content, sizeof(unsigned char), file->content_size, cripta);
+  
+  FILE * new_file = fopen(file->name, "w+");
+  fwrite(content, sizeof(unsigned char), file->content_size, new_file);
+
+  return validate(content, file->content_size, file->hash);
 }
 
 
@@ -271,8 +376,8 @@ create_dir_meta(struct directory * dir, int * meta_size)
 {
   const int path_name_length = strlen(dir->name);
   *meta_size = PATH_SIZE_LENGTH + path_name_length
-          + DIR_COUNT_LENGTH + (DIR_NAME_LENGTH * dir->directories->length)  
-          + FILE_COUNT_LENGTH + (FILE_NAME_LENGTH * (dir->files->length + 1))
+          + DIR_COUNT_LENGTH + (DIR_OFFSET_LENGTH * dir->directories->length)  
+          + FILE_COUNT_LENGTH + (FILE_OFFSET_LENGTH * dir->files->length)
           + 1;
 
   int meta_offset = 0;
@@ -297,21 +402,20 @@ create_dir_meta(struct directory * dir, int * meta_size)
   int i;
   for(i = 0; i < dir->directories->length; i++)
     { //reserve 4 bytes
-      memcpy(meta + meta_offset,DIR_OFFSET_PADDING, DIR_NAME_LENGTH);
-      meta_offset += DIR_NAME_LENGTH;
+      memcpy(meta + meta_offset,DIR_OFFSET_PADDING, DIR_OFFSET_LENGTH);
+      meta_offset += DIR_OFFSET_LENGTH;
     }
 
-  //note: you needs 1 extra space to accomodate the size of the last file in the list
-  unsigned char * b_file_count_length = int_to_bytes(dir->files->length + 1, FILE_COUNT_LENGTH);
+  unsigned char * b_file_count_length = int_to_bytes(dir->files->length, FILE_COUNT_LENGTH);
   memcpy(meta + meta_offset, b_file_count_length, FILE_COUNT_LENGTH);
   free(b_file_count_length);
 
   meta_offset += FILE_COUNT_LENGTH;
   int j;
-  for(j = 0; j < dir->files->length + 1; j++)
+  for(j = 0; j < dir->files->length; j++)
     { //reserve 4 bytes
-      memcpy(meta + meta_offset, FILE_OFFSET_PADDING, FILE_NAME_LENGTH);
-      meta_offset += FILE_NAME_LENGTH;
+      memcpy(meta + meta_offset, FILE_OFFSET_PADDING, FILE_OFFSET_LENGTH);
+      meta_offset += FILE_OFFSET_LENGTH;
     }
 
   return meta;
@@ -333,14 +437,13 @@ add_file_offset_meta(char * meta, int file_offset, int pos)
   meta += PATH_SIZE_LENGTH + path_size;
 
   int dir_count = bytes_to_int(meta, DIR_COUNT_LENGTH);
-  meta += DIR_COUNT_LENGTH + (DIR_NAME_LENGTH*dir_count)
-          + FILE_COUNT_LENGTH + (FILE_NAME_LENGTH * pos);
+  meta += DIR_COUNT_LENGTH + (DIR_OFFSET_LENGTH*dir_count)
+          + FILE_COUNT_LENGTH + (FILE_OFFSET_LENGTH * pos);
 
-  unsigned char * b_file_offset = int_to_bytes(file_offset, FILE_NAME_LENGTH);
-  memcpy(meta, b_file_offset, FILE_NAME_LENGTH);
+  unsigned char * b_file_offset = int_to_bytes(file_offset, FILE_OFFSET_LENGTH);
+  memcpy(meta, b_file_offset, FILE_OFFSET_LENGTH);
   free(b_file_offset);
 }
-
 
 //
 // add_dir_offset_meta - walks the meta string until it finds the position to store the 
@@ -356,10 +459,10 @@ add_dir_offset_meta(char * meta, int dir_offset, int pos)
 {
   int path_size =  bytes_to_int(meta,PATH_SIZE_LENGTH);
   meta += PATH_SIZE_LENGTH + path_size 
-          + DIR_COUNT_LENGTH + (DIR_NAME_LENGTH * pos);
+          + DIR_COUNT_LENGTH + (DIR_OFFSET_LENGTH * pos);
 
-  unsigned char * b_dir_offset = int_to_bytes(dir_offset, DIR_NAME_LENGTH);
-  memcpy(meta, b_dir_offset, DIR_NAME_LENGTH);
+  unsigned char * b_dir_offset = int_to_bytes(dir_offset, DIR_OFFSET_LENGTH);
+  memcpy(meta, b_dir_offset, DIR_OFFSET_LENGTH);
   free(b_dir_offset);
 }
 
@@ -401,6 +504,21 @@ bytes_to_int(unsigned char * bytes, int num_of_bytes)
 
 
 
+//
+//  Receives the directory and the name of the path of the dir
+//
+int dir_cmp(const void * dir, const void * name)
+{
+  return strcmp(((struct directory*)dir)->name, (char*)name);
+}
+//
+//
+int file_cmp(const void * file, const void * name)
+{
+  return strcmp(((struct directory*)file)->name, (char*)name);
+}
+
+
 
 // 
 // The size of the file is the difference between the offset of the next file 
@@ -419,7 +537,7 @@ read_cripta_dir(FILE * cripta)
   fread(root_path_name, path_name_length, sizeof(unsigned char), cripta);
   root_path_name[path_name_length] = '\0';
 
-  unsigned char b_num_dirs[DIR_COUNT_LENGTH], b_offset_dir[DIR_NAME_LENGTH];
+  unsigned char b_num_dirs[DIR_COUNT_LENGTH], b_offset_dir[DIR_OFFSET_LENGTH];
   fread(b_num_dirs, DIR_COUNT_LENGTH, sizeof(unsigned char), cripta);
   int num_dirs = bytes_to_int(b_num_dirs, DIR_COUNT_LENGTH);
 
@@ -430,26 +548,26 @@ read_cripta_dir(FILE * cripta)
   for (i=0; i < num_dirs; i++)
     {
       //call read_cripta_dir() recursovely for each directory offset    
-      fread(b_offset_dir, DIR_NAME_LENGTH, sizeof(unsigned char), cripta);
+      fread(b_offset_dir, DIR_OFFSET_LENGTH, sizeof(unsigned char), cripta);
       checkpoint_index = ftell(cripta);
-      fseek(cripta, bytes_to_int(b_offset_dir, DIR_NAME_LENGTH), SEEK_SET);
+      fseek(cripta, bytes_to_int(b_offset_dir, DIR_OFFSET_LENGTH), SEEK_SET);
       list_add(dir_list, read_cripta_dir(cripta));
       fseek(cripta, checkpoint_index, SEEK_SET);
     }
 
 
-  unsigned char b_num_files[FILE_COUNT_LENGTH], b_offset_file[FILE_NAME_LENGTH];
+  unsigned char b_num_files[FILE_COUNT_LENGTH];// b_offset_file[FILE_OFFSET_LENGTH];
   fread(b_num_files, FILE_COUNT_LENGTH, sizeof(unsigned char), cripta);
   int num_files = bytes_to_int(b_num_files, FILE_COUNT_LENGTH);
 
-  int j,* tmp2;  
-  List * file_list = list_new(int_cmp);
+  int j;//* tmp2;  
+  List * file_list = list_new(file_cmp);
   for (i=0; i < num_files; i++)
     {
-      fread(b_offset_file, FILE_NAME_LENGTH, sizeof(unsigned char), cripta);
-      tmp2 = malloc(sizeof(int));
-      *tmp2 = bytes_to_int(b_offset_file, FILE_NAME_LENGTH);
-      list_add(file_list, tmp2);
+      //fread(b_offset_file, FILE_OFFSET_LENGTH, sizeof(unsigned char), cripta);
+      //tmp2 = malloc(sizeof(int));
+      //*tmp2 = bytes_to_int(b_offset_file, FILE_OFFSET_LENGTH);
+      list_add(file_list, read_cripta_file(cripta));
     }
 
   struct directory * crip_dir = malloc(sizeof(struct directory));
@@ -459,15 +577,6 @@ read_cripta_dir(FILE * cripta)
 
   return crip_dir;
 }
-
-//
-//  Receives the directory and the name of the path of the dir
-//
-int dir_cmp(const void * dir, const void * name)
-{
-  return strcmp(((struct directory*)dir)->name, (char*)name);
-}
-
 
 void print_dirs(struct directory * dir)
 {
@@ -480,7 +589,7 @@ void print_dirs(struct directory * dir)
   node = dir->files->head;
   while (node != NULL)
   {
-    printf("%d\n", *(int*)node->data);
+    printf("%s\n", ((cripta_file*)node->data)->name);
     node = node->next;
   }
   puts(">back\n>exit");
@@ -512,29 +621,34 @@ _cmd(char * cripta_name)
   void * data;
   while (1)
     {
-      print_dirs(dirs);
-      printf(">> ");
-      fgets(buffer, sizeof(buffer), stdin);
-      buffer[strlen(buffer)-1] = '\0';
+    print_dirs(dirs);
+    printf(">> ");
+    fgets(buffer, sizeof(buffer), stdin);
+    buffer[strlen(buffer)-1] = '\0';
 
-      if (strcmp(buffer, "back") == 0)
-        {
-          if (dirs->directories->head != NULL)
-            dirs = (struct directory *)list_pop(dirs->directories);
-          else puts("Already at root");
-        }
-      else if (strcmp(buffer, "exit") == 0)
-        {
-          return;
-        }
-      else if ((data = list_get(dirs->directories, buffer)) != NULL)
-        {
-          list_add(stack, dirs);
-          dirs = (struct directory *)data; 
-        }
-      else
+    if (strcmp(buffer, "back") == 0)
       {
-        puts("Invalid directory.");
+      if (dirs->directories->head != NULL)
+        dirs = (struct directory *)list_pop(dirs->directories);
+      else puts("Already at root");
+      }
+    else if (strcmp(buffer, "exit") == 0)
+      {
+      return;
+      }
+    else if ((data = list_get(dirs->directories, buffer)) != NULL)
+      {
+      list_add(stack, dirs);
+      dirs = (struct directory *)data; 
+      }
+    else if ((data = list_get(dirs->files, buffer)) != NULL)
+      {
+      printf("Creating file: %s\n", ((cripta_file *)data)->name);
+      create_cripta_file_content(cripta, (cripta_file *)data);
+      }
+    else
+      {
+      puts("Invalid directory.");
       }
     }
 

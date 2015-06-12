@@ -43,12 +43,16 @@ get_hash(unsigned char * message, int  length)
 //
 //	validate - compares the file with the respective hash, to confirm the file is valid
 //
-int validate(unsigned char * file, unsigned char * md5, size_t file_size )
+//	
+//
+//
+
+int validate(unsigned char * file, size_t file_size, unsigned char * md5)
 {
 	char * hash = get_hash(file, file_size);
   int result = memcmp(hash, md5, MD5_SIZE);
   free(hash);
-  return result;
+  return !result;
 }
 
 

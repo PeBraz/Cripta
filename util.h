@@ -8,6 +8,6 @@
 
 unsigned char * get_hash(unsigned char *,int);
 
-int validate(unsigned char *, unsigned char *, size_t);
+int validate(unsigned char *, size_t, unsigned char *);
 
 #endif
