@@ -26,7 +26,7 @@ void *
 list_get(List * list, void * ele)
 {
   ListNode * node = list->head;
-  while (node != NULL && list->cmp(ele, node->data))
+  while (node != NULL && list->cmp(node->data, ele))
       node=node->next;
 
   return (node != NULL) ? node->data : NULL;
@@ -45,7 +45,7 @@ list_remove(List * list, void * ele)
 
   ListNode * node = list->head, * prev_node = NULL;
 
-  while (node != NULL && list->cmp(ele, node->data))
+  while (node != NULL && list->cmp(node->data, ele))
     {
       prev_node = node;
       node=node->next;
