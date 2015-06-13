@@ -45,11 +45,11 @@ get_hash(unsigned char * message, int  length)
 //
 //	
 //
-//
+
 
 int validate(unsigned char * file, size_t file_size, unsigned char * md5)
 {
-	char * hash = get_hash(file, file_size);
+	unsigned char * hash = get_hash(file, file_size);
   int result = memcmp(hash, md5, MD5_SIZE);
   free(hash);
   return !result;

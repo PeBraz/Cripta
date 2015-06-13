@@ -286,11 +286,10 @@ write_cripta_file(char * path, int * size)
     unsigned char * hash = get_hash(file_content, file_size);
     
     unsigned char * b_file_name_length = int_to_bytes(filename_size, FILE_NAME_LENGTH);
+    unsigned char * b_file_size_length = int_to_bytes(file_size, FILE_SIZE_LENGTH);
 
     *size = FILE_NAME_LENGTH + filename_size 
             + MD5_SIZE + FILE_SIZE_LENGTH + file_size;
-
-    unsigned char * b_file_size_length = int_to_bytes(*size, FILE_SIZE_LENGTH);
 
     unsigned char * file_array = malloc(*size);
     //length of the filename
@@ -375,6 +374,7 @@ read_cripta_file(FILE * cripta)
 int
 create_cripta_file_content(FILE * cripta, cripta_file * file)
 {
+  fseek(cripta, file->content_offset, SEEK_SET);
   unsigned char * content = malloc(file->content_size);
   fread(content, sizeof(unsigned char), file->content_size, cripta);
   
@@ -669,7 +669,6 @@ _cmd(char * cripta_name)
       goto finish_cmd_round;
 
     int option = buffer[0] - '0';
-    printf ("option: %d\n", option);
     int counter = 1;
     ListNode * node = dirs->directories->head;
     while (node!=NULL)
