@@ -193,13 +193,10 @@ concat_path(char * path_prefix, char * path_sufix)
 char *
 path_leaf(char * path)
 {
-  char * prev_tok = NULL;
-  char * token = strtok(path, "/");
-  while(token != NULL) {
-    prev_tok = token;
-    token = strtok(NULL, "/");
-  }
-  return prev_tok;
+  int i;
+  for (i = strlen(path); i >= 0 && path[i] != '/'; i--);
+
+  return path + i + 1;
 }
 
 
@@ -217,8 +214,13 @@ create_cripta(char * path)
   //create new file
   char * new_file_name = malloc(strlen(path) + strlen(file_name_suffix) + 1);
   sprintf(new_file_name, "%s%s", path, file_name_suffix);
+
   FILE * new_f = fopen(path_leaf(new_file_name), "w+");
-  free(new_file_name);
+  if (new_f == NULL)
+    {
+      error("Unable to open new file");
+      return;
+    }
 
   //initiate srand for dealing with encryption (so that it doesn't suck)
   srand(time(NULL));
@@ -246,8 +248,9 @@ create_cripta_with_father(struct directory * dir, FILE * file)
   int dir_meta_position = ftell(file);
   int meta_size;
   char * my_meta = create_dir_meta(dir, &meta_size);
+
   fseek(file, meta_size, SEEK_CUR);  //reserve space for when writing meta
-  
+
   int dirNumber = 0;
   ListNode * node = dir->directories->head;
   while (node != NULL)
@@ -270,13 +273,14 @@ create_cripta_with_father(struct directory * dir, FILE * file)
     free(file_array);
     node = node->next;
     }
-
+   printf("I am at: %d meta position is: %d\n", (int)ftell(file), dir_meta_position);
   //after all files and dirs seen, write the directory meta fully updated
   fseek(file, dir_meta_position, SEEK_SET);
   fwrite(my_meta, sizeof(char), meta_size, file);
   free(my_meta);
   //always append at the end of the file 
   fseek(file, 0, SEEK_END);
+
 }
 
 //
@@ -322,7 +326,7 @@ write_cripta_file(char * path, int * size)
     memcpy(file_array + FILE_NAME_LENGTH + filename_size + MD5_SIZE,
            b_file_size_length, FILE_SIZE_LENGTH);
     //content of the file
-    memcpy(file_array + FILE_NAME_LENGTH +   filename_size + MD5_SIZE + FILE_SIZE_LENGTH,
+    memcpy(file_array + FILE_NAME_LENGTH + filename_size + MD5_SIZE + FILE_SIZE_LENGTH,
             file_content, file_size);
 
     free(b_file_name_length);
@@ -400,7 +404,7 @@ create_cripta_file_content(FILE * cripta, cripta_file * file)
   FILE * new_file = fopen(path_leaf(file->name), "w+");
   fwrite(content, sizeof(unsigned char), file->content_size, new_file);
 
-  return validate(content, file->content_size, file->hash);
+  return 1;//validate(content, file->content_size, file->hash);
 }
 
 
@@ -686,10 +690,8 @@ _cmd(char * cripta_name)
       {
       break;
       }
-    else if (strlen(buffer) > 1) 
-      goto finish_cmd_round;
 
-    int option = buffer[0] - '0';
+    int option = atoi(buffer);
     int counter = 1;
     ListNode * node = dirs->directories->head;
     while (node!=NULL)
@@ -697,7 +699,6 @@ _cmd(char * cripta_name)
       if (counter == option)
         {
         list_add(stack, dirs);
-
         dirs = (struct directory *)node->data; 
         goto finish_cmd_round;
         }
@@ -707,6 +708,7 @@ _cmd(char * cripta_name)
     node = dirs->files->head;
     while (node != NULL)
       {
+
       if (counter == option)
         {
         printf("Creating file: %s\n", ((cripta_file *)node->data)->name);
