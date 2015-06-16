@@ -13,6 +13,15 @@ struct directory
   List * files;
 };
 
+typedef struct cripta_file
+{
+  char * name;
+  unsigned char * hash;
+  int content_offset;
+  int content_size;
+
+} cripta_file;
+
 
 int is_dir(char*);
 

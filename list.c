@@ -35,9 +35,8 @@ list_get(List * list, void * ele)
 void *
 list_pop(List * list)
 {
-    return list->head != NULL ?  list_remove(list, list->head->data) : NULL;
+    return list_remove(list, list->head->data);
 }
-
 
 void *
 list_remove(List * list, void * ele)
@@ -45,16 +44,16 @@ list_remove(List * list, void * ele)
 
   ListNode * node = list->head, * prev_node = NULL;
 
-  while (node != NULL && list->cmp(node->data, ele))
+  while (node != NULL && list->cmp != NULL && list->cmp(node->data, ele))
     {
       prev_node = node;
       node=node->next;
     }
   if (node == NULL)
-    return NULL;
+    return NULL;  
   else if (prev_node == NULL)
    {
-     list->head = NULL;
+     list->head = node->next;
    }
   else {
     prev_node->next = node->next;

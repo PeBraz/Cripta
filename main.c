@@ -34,7 +34,7 @@
 #define FILE_OFFSET_PADDING "0000"
 char * concat_path(char*, char*);
 
-
+void cripta_file_free(cripta_file * cf);
 
 
 //
@@ -149,6 +149,26 @@ directory_free(struct directory * dir)
   free(dir);
 }
 
+void
+directory_free_with_files(struct directory * dir)
+{
+  ListNode * node = dir->directories->head;
+  while (node != NULL){
+    directory_free_with_files(node->data);
+    node = node->next;
+  }
+  free(dir->name);
+  node = dir->files->head;
+  while (node != NULL)
+    {
+      cripta_file_free(node->data);
+      node = node->next;
+    }
+  list_free(dir->files);
+  list_free(dir->directories);
+  free(dir);
+}
+
 //  
 //  concat_path - concatenates a relative path with a directory name
 //        the path prefix and sufix provided need to be destroyed by the user
@@ -192,6 +212,7 @@ void
 create_cripta(char * path)
 {
   struct directory * dir = new_dir(path);
+  if (dir == NULL) return;
   const char * file_name_suffix = "_CRIPTA";
   //create new file
   char * new_file_name = malloc(strlen(path) + strlen(file_name_suffix) + 1);
@@ -231,7 +252,6 @@ create_cripta_with_father(struct directory * dir, FILE * file)
   ListNode * node = dir->directories->head;
   while (node != NULL)
     { //Recursively write each directories information into the same file
-      printf("writing cripta 1 : %d\n",(int)ftell(file));
     add_dir_offset_meta(my_meta, ftell(file), dirNumber++);
     create_cripta_with_father((struct directory *)node->data, file);
     node = node->next;
@@ -312,14 +332,14 @@ write_cripta_file(char * path, int * size)
     return file_array;
 
 }
-typedef struct cripta_file
-{
-  char * name;
-  unsigned char * hash;
-  int content_offset;
-  int content_size;
 
-} cripta_file;
+void
+cripta_file_free(cripta_file * cf)
+{
+  free(cf->name);
+  free(cf->hash);
+  free(cf);
+}
 
 //
 //  read_cripta_file - takes a cripta file that points to a file and returns a  
@@ -327,7 +347,6 @@ typedef struct cripta_file
 //       the cripta it points to the end of the initial offset. 
 //        (pointing to another file offset in the meta or the end of the meta)
 //
-
 cripta_file *
 read_cripta_file(FILE * cripta)
 {
@@ -636,16 +655,18 @@ _cmd(char * cripta_name)
 
 
   FILE * cripta = fopen(cripta_name, "r");
-  if (cripta == NULL)
+  if (cripta == NULL){
     error("FILE NOT FOUND");
+    return;
+  }
 
-  List * stack = list_new(dir_cmp); 
+  List * stack = list_new(NULL); 
 
   struct directory * dirs = read_cripta_dir(cripta);
   struct directory * dir_free = dirs; //used for cleaning the entire structure
   char buffer[1024];
 
-  void * data;
+
   while (1)
     {
     print_dirs(dirs);
@@ -655,15 +676,15 @@ _cmd(char * cripta_name)
 
     if (strcmp(buffer, "back") == 0)
       {
-      if (dirs->directories->head != NULL)
-        dirs = (struct directory *)list_pop(dirs->directories);
+      if (stack->head != NULL)
+        dirs = (struct directory *)list_pop(stack);
       else 
         puts("Already at root");
       goto finish_cmd_round;
       }
     else if (strcmp(buffer, "exit") == 0)
       {
-      return;
+      break;
       }
     else if (strlen(buffer) > 1) 
       goto finish_cmd_round;
@@ -676,7 +697,8 @@ _cmd(char * cripta_name)
       if (counter == option)
         {
         list_add(stack, dirs);
-        dirs = (struct directory *)data; 
+
+        dirs = (struct directory *)node->data; 
         goto finish_cmd_round;
         }
       counter++;
@@ -699,8 +721,8 @@ _cmd(char * cripta_name)
 finish_cmd_round: //Not a proud moment for me
 ;
     }
-
-    free(dir_free);
+    list_free(stack);
+    directory_free_with_files(dir_free);
     fclose(cripta);
 }
 
@@ -718,7 +740,7 @@ main(int argc, char * argv[])
 
   int i;
   char * flag;
-  for (i = 1; i < argc; i+=2)
+  for (i = 1; i + 1 < argc; i+=2)
     { 
     flag = argv[i];
     if (strlen(flag) != 2 || flag[0] != '-')
@@ -726,6 +748,7 @@ main(int argc, char * argv[])
       help();
       return EXIT_SUCCESS;
       }
+
     dir_name = malloc(strlen(argv[i+1]) + 1);
     strcpy(dir_name, argv[i+1]);
 
