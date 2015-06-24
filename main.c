@@ -32,6 +32,9 @@
  */
 #define DIR_OFFSET_PADDING "0000"
 #define FILE_OFFSET_PADDING "0000"
+
+char * g_password; //yay global security
+
 char * concat_path(char*, char*);
 
 void cripta_file_free(cripta_file * cf);
@@ -266,11 +269,7 @@ create_cripta_with_father(struct directory * dir, FILE * file)
   while (node != NULL)
     {
     add_file_offset_meta(my_meta, ftell(file), fileNumber++);
-    file_array = write_cripta_file((char*)node->data, &file_size);
-
-    fwrite(file_array, sizeof(unsigned char), file_size, file);
-      
-    free(file_array);
+    write_cripta_file((char*)node->data, file, &file_size);
     node = node->next;
     }
    printf("I am at: %d meta position is: %d\n", (int)ftell(file), dir_meta_position);
@@ -299,42 +298,47 @@ create_cripta_with_father(struct directory * dir, FILE * file)
 //  @return       a byte array with the file information 
 //                with length inserted into parameter size
 //
-unsigned char *
-write_cripta_file(char * path, int * size)
+void
+write_cripta_file(char * path, FILE * out, int * size)
 {
-    
-    int filename_size = strlen(path);
 
-    int file_size;
-    char * file_content = read_full_file(path, &file_size);
-    unsigned char * hash = get_hash(file_content, file_size);
-    
-    unsigned char * b_file_name_length = int_to_bytes(filename_size, FILE_NAME_LENGTH);
-    unsigned char * b_file_size_length = int_to_bytes(file_size, FILE_SIZE_LENGTH);
+  int filename_size = strlen(path);
+  int file_size;
 
-    *size = FILE_NAME_LENGTH + filename_size 
-            + MD5_SIZE + FILE_SIZE_LENGTH + file_size;
+  //this is could be improved, have to read file once, because of this
+  // and another to encrypt, also file_size is used twice
+  char * file_content = read_full_file(path, &file_size);
+  unsigned char * hash = get_hash(file_content, file_size);
+  free(file_content);
 
-    unsigned char * file_array = malloc(*size);
-    //length of the filename
-    memcpy(file_array, b_file_name_length, FILE_NAME_LENGTH);
-    //filename
-    memcpy(file_array + FILE_NAME_LENGTH, path, filename_size);
-    //md5 hash
-    memcpy(file_array + FILE_NAME_LENGTH + filename_size, hash, MD5_SIZE);
-    //length of the file
-    memcpy(file_array + FILE_NAME_LENGTH + filename_size + MD5_SIZE,
-           b_file_size_length, FILE_SIZE_LENGTH);
-    //content of the file
-    memcpy(file_array + FILE_NAME_LENGTH + filename_size + MD5_SIZE + FILE_SIZE_LENGTH,
-            file_content, file_size);
+  //length of the filename
+  unsigned char * b_file_name_length = int_to_bytes(filename_size, FILE_NAME_LENGTH);
+  fwrite(b_file_name_length, sizeof(unsigned char), FILE_NAME_LENGTH, out);
+  free(b_file_name_length);
+  
+  //filename
+  fwrite(path, sizeof(char), file_size, out);
+  
+  //md5 hash
+  fwrite(hash, sizeof(unsigned char), MD5_SIZE, out);
+  free(hash);
+  
+  //write the encrypted file directly, only then update the size of the file
+  fseek(out, FILE_SIZE_LENGTH, SEEK_CUR);
 
-    free(b_file_name_length);
-    free(b_file_size_length);
-    free(file_content);
-    free(hash);
-    return file_array;
+  FILE * in = fopen(path, "r");
+  file_size = do_crypt(in, -1, out, g_password, DO_ENCRYPT);
+  if (file_size == -1) 
+    {
+    error("failed to encrypt file");
+    file_size = 0;  //consider that the file is empty
+    }
 
+  fseek(out, -(FILE_SIZE_LENGTH + file_size), SEEK_CUR);
+
+  unsigned char * b_file_size_length = int_to_bytes(file_size, FILE_SIZE_LENGTH);
+  fwrite(b_file_size_length, sizeof(unsigned char), FILE_SIZE_LENGTH, out);
+  free(b_file_size_length);
 }
 
 void
@@ -398,12 +402,13 @@ int
 create_cripta_file_content(FILE * cripta, cripta_file * file)
 {
   fseek(cripta, file->content_offset, SEEK_SET);
-  unsigned char * content = malloc(file->content_size);
-  fread(content, sizeof(unsigned char), file->content_size, cripta);
-  
-  FILE * new_file = fopen(path_leaf(file->name), "w+");
-  fwrite(content, sizeof(unsigned char), file->content_size, new_file);
 
+  FILE * new_file = fopen(path_leaf(file->name), "w+");
+  int size = do_crypt(cripta, file->content_size, new_file, g_password, DO_DECRYPT);
+  if (size = -1)
+    {
+      error("Password Failed");
+    }
   return 1;//validate(content, file->content_size, file->hash);
 }
 
@@ -648,8 +653,8 @@ void print_dirs(struct directory * dir)
 void
 help()
 {
-  puts("cripta -c <path>\t\t encrypt a file into a CRIPTA");
-  puts("cripta -d <file>\t\t starts read CRIPTA file mode");
+  puts("cripta -p <password> -c <path> \t\t encrypt a file into a CRIPTA");
+  puts("cripta -p <password> -d <file> \t\t starts read CRIPTA file mode");
 }
 
 
@@ -669,7 +674,6 @@ _cmd(char * cripta_name)
   struct directory * dirs = read_cripta_dir(cripta);
   struct directory * dir_free = dirs; //used for cleaning the entire structure
   char buffer[1024];
-
 
   while (1)
     {
@@ -740,6 +744,7 @@ main(int argc, char * argv[])
     return EXIT_FAILURE;
     }
 
+  g_password = NULL;
   int i;
   char * flag;
   for (i = 1; i + 1 < argc; i+=2)
@@ -757,20 +762,33 @@ main(int argc, char * argv[])
     switch (flag[1])
       {
       case 'c':
+        {
+        if (g_password == NULL)  break;
         create_cripta(dir_name);
         break;
-
-      case 'd':
+        }
+      case 'd': 
+        {
+        if (g_password == NULL) break;
         _cmd(dir_name);
         break;
 
+        }
+      case 'p':
+        {
+        if (g_password != NULL) break;
+        g_password = malloc(strlen(dir_name)+1);
+        strcpy(g_password, dir_name);
+        break;
+        }
       default:
         help();
       }
 
     free(dir_name);
     }
-  
-return EXIT_SUCCESS;
+
+  free(g_password);
+  return EXIT_SUCCESS;
 
 }

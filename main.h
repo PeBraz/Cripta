@@ -47,5 +47,5 @@ void add_file_offset_meta(char *, int, int);
 
 void add_dir_offset_meta(char *, int, int);
 
-unsigned char * write_cripta_file(char * path, int * size);
+void write_cripta_file(char * path, FILE * file, int * size);
 #endif

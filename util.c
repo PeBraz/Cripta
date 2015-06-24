@@ -57,26 +57,77 @@ int validate(unsigned char * file, size_t file_size, unsigned char * md5)
 
 
 
-//  srand((unsigned int)time(NULL)); before this
-// length must have the initial content length and will return the new value (need to see if encryption changes length)
-// is it block size dependent?
-/*unsigned char *	
-encrypt_content(char * content, int * length)
+//
+//  aes256_key_and_iv - given a password create a 32 byte string and 16 byte string
+//              to be used by aes256
+//
+//  @param password   of the user
+//  @param key        unused pointer 
+//  @param iv         unused pointer 
+//  @http://stackoverflow.com/questions/9488919/openssl-password-to-key  
+//
+void
+aes256_key_and_iv(const char * password, char * key,
+                  char * iv)
+{
+  const EVP_CIPHER *cipher;
+  const EVP_MD *dgst = NULL;
+  const unsigned char *salt = NULL;
+
+  key = malloc(32);
+  iv = malloc(16);
+
+  OpenSSL_add_all_algorithms();
+
+  cipher = EVP_get_cipherbyname("aes-256-cbc");
+  if (!cipher) 
+    error("no such cipher");
+
+  dgst = EVP_get_digestbyname("md5");
+  if (!dgst)
+    error("no such digest");
+
+  int success = EVP_BytesToKey(cipher, dgst, salt, (unsigned char *) password,
+                               strlen(password), 1, key, iv);
+  if (!success)
+    error("EVP_BytesToKey failed");
+}
+
+//
+//  Takes content from a file and writes it into another file
+//  (taken from: https://www.openssl.org/docs/crypto/EVP_EncryptInit.html)
+//  Reads only the length from the file starting from its current position
+// 
+//  @param  content    file to take (un)encrypted content from
+//  @param  length     of the file, if -1, read until the end
+//  @param  out        file to append (un)encrypted content to
+//  @param  password   for key and iv generating
+//  @param  do_encrypt specify if you want to encrypt (1) or decrypt (0)
+//
+//  @return            the number of bytes written to the out file
+//                     if -1 is returned instead, then an error occured
+
+int
+do_crypt(FILE * content, int length , FILE * out, char * password, int do_encrypt)
 {
   unsigned char inbuf[KBBLOCK], outbuf[KBBLOCK + EVP_MAX_BLOCK_LENGTH];
 
-  int size = *length;
-  // size of a 1024 block + last block that is bigger + iv
-  unsigned char * encrypted_content = malloc((size - 1)* KBBLOCK 
-  																					+ KBBLOCK + EVP_MAX_BLOCK_LENGTH 
-  																					+ AES256_IV_SIZE);
-
-  int inlen, outlen;
+  int inlen, outlen, bytes_written_count = 0;
   EVP_CIPHER_CTX ctx;
 
-  unsigned char key[EVP_MAX_KEY_LENGTH];
-	unsigned char iv[EVP_MAX_IV_LENGTH];
+  char * key;
+  char * iv;
 
+  if (length == -1)
+    {
+      int position = ftell(content);
+      fseek(content, 0, SEEK_END);
+      length = ftell(content) - position;
+      fseek(content, SEEK_SET, position);
+    }
+
+
+  aes256_key_and_iv(password, key, iv);
 
   EVP_CIPHER_CTX_init(&ctx);
 	EVP_CipherInit_ex(&ctx, EVP_aes_256_cbc(), NULL, NULL, NULL, do_encrypt);
@@ -86,110 +137,34 @@ encrypt_content(char * content, int * length)
 	EVP_CipherInit_ex(&ctx, NULL, NULL, key, iv, 1);
 
 	int offset = 0;
-	for(;;)
+	for( ; length > 0; length -= KBBLOCK)
   	{
-  	memcpy(inbuf, content, length < KBBLOCK? length :KBBLOCK);	
+    inlen = fread(inbuf, sizeof(unsigned char), (length < KBBLOCK ? length : KBBLOCK), content);
 
     if(!EVP_CipherUpdate(&ctx, outbuf, &outlen, inbuf, inlen))
  			{
 			EVP_CIPHER_CTX_cleanup(&ctx);
-      return NULL;
+      free(key);
+      free(iv);
+      return -1;
       }
-   	memcpy(encrypted_content ,outbuf, outlen);
-   	fwrite(outbuf, 1, outlen, out);
-  }
-  if(!EVP_CipherFinal_ex(&ctx, outbuf, &outlen))
-  	{
-               
-                EVP_CIPHER_CTX_cleanup(&ctx);
-                return 0;
+   	fwrite(outbuf, sizeof(unsigned char), outlen, out);
+    bytes_written_count += outlen;
     }
-  fwrite(outbuf, 1, outlen, out);
 
-        EVP_CIPHER_CTX_cleanup(&ctx);
-        return 1;
+  if(!EVP_CipherFinal_ex(&ctx, outbuf, &outlen))
+  	{           
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    free(key);
+    free(iv);
+    return -1;
+    }
 
+  fwrite(outbuf, sizeof(unsigned char), outlen, out);
+  bytes_written_count += outlen;
 
+  EVP_CIPHER_CTX_cleanup(&ctx);
+  free(key);
+  free(iv);
+  return outlen;
 }
-*/
-//
-//	aes256_key_and_iv - given a password create a 32 byte string and 16 byte string
-// 							to be used by aes256
-//
-//	@param password 	of the user
-//	@param key 				pointer to a 32 bytes allocated space
-//	@param iv 				pointer to a 16 bytes allocated space
-//	@http://stackoverflow.com/questions/9488919/openssl-password-to-key  
-//
-/*void
-aes256_key_and_iv(const char * password, char * key,
-									char * iv)
-{
-  const EVP_CIPHER *cipher;
-  const EVP_MD *dgst = NULL;
-  const unsigned char *salt = NULL;
-
-  OpenSSL_add_all_algorithms();
-
-  cipher = EVP_get_cipherbyname("aes-256-cbc");
-  if (!cipher) 
-   	error("no such cipher");
-
-  dgst = EVP_get_digestbyname("md5");
-  if (!dgst)
-  	error("no such digest")
-
-  int success = EVP_BytesToKey(cipher, dgst, salt, (unsigned char *) password,
-        						 					 strlen(password), 1, key, iv))
- 	if (!success)
-    error("EVP_BytesToKey failed");
-}
-
-//http://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
-//taken from https://www.openssl.org/docs/crypto/EVP_EncryptInit.html
-int do_crypt(char * in, char * out, int do_encrypt, char * passphrase)
-        {
-
-        unsigned char inbuf[KBBLOCk], outbuf[KBBLOCK + EVP_MAX_BLOCK_LENGTH];
-        srand((unsigned int)time(NULL));
-
-        int inlen, outlen;
-        EVP_CIPHER_CTX ctx;
-
-        unsigned char key[EVP_MAX_KEY_LENGTH];
-        unsigned char iv[EVP_MAX_IV_LENGTH];
-
-       
-        EVP_CIPHER_CTX_init(&ctx);
-        EVP_CipherInit_ex(&ctx, EVP_aes_128_cbc(), NULL, NULL, NULL,
-                do_encrypt);
-        OPENSSL_assert(EVP_CIPHER_CTX_key_length(&ctx) == 16);
-        OPENSSL_assert(EVP_CIPHER_CTX_iv_length(&ctx) == 16);
-
-        EVP_CipherInit_ex(&ctx, NULL, NULL, key, iv, do_encrypt);
-
-        for(;;)
-                {
-                inlen = fread(inbuf, 1, 1024, in);
-                if(inlen <= 0) break;
-                if(!EVP_CipherUpdate(&ctx, outbuf, &outlen, inbuf, inlen))
-                        {
-                 
-                        EVP_CIPHER_CTX_cleanup(&ctx);
-                        return 0;
-                        }
-                fwrite(outbuf, 1, outlen, out);
-                }
-        if(!EVP_CipherFinal_ex(&ctx, outbuf, &outlen))
-                {
-         
-                EVP_CIPHER_CTX_cleanup(&ctx);
-                return 0;
-                }
-        fwrite(outbuf, 1, outlen, out);
-
-        EVP_CIPHER_CTX_cleanup(&ctx);
-        return 1;
-        }
-
-*/
