@@ -8,8 +8,8 @@
 #include "main.h"
 
 #define RAND_PART_SIZE 10
-#define AES256_BLOCK_SIZE 32
 #define AES256_IV_SIZE 16
+#define AES256_KEY_SIZE 16
 #define KBBLOCK 1024
 
 //
@@ -67,19 +67,19 @@ int validate(unsigned char * file, size_t file_size, unsigned char * md5)
 //  @http://stackoverflow.com/questions/9488919/openssl-password-to-key  
 //
 void
-aes256_key_and_iv(const char * password, char * key,
-                  char * iv)
+aes256_key_and_iv(const char * password, unsigned char ** key,
+                  unsigned char ** iv)
 {
   const EVP_CIPHER *cipher;
   const EVP_MD *dgst = NULL;
   const unsigned char *salt = NULL;
 
-  key = malloc(32);
-  iv = malloc(16);
+  *key = malloc(AES256_KEY_SIZE);
+  *iv = malloc(AES256_IV_SIZE);
 
   OpenSSL_add_all_algorithms();
 
-  cipher = EVP_get_cipherbyname("aes-256-cbc");
+  cipher = EVP_get_cipherbyname("aes-128-cbc");
   if (!cipher) 
     error("no such cipher");
 
@@ -88,7 +88,7 @@ aes256_key_and_iv(const char * password, char * key,
     error("no such digest");
 
   int success = EVP_BytesToKey(cipher, dgst, salt, (unsigned char *) password,
-                               strlen(password), 1, key, iv);
+                               strlen(password), 1, *key, *iv);
   if (!success)
     error("EVP_BytesToKey failed");
 }
@@ -110,13 +110,11 @@ aes256_key_and_iv(const char * password, char * key,
 int
 do_crypt(FILE * content, int length , FILE * out, char * password, int do_encrypt)
 {
-  unsigned char inbuf[KBBLOCK], outbuf[KBBLOCK + EVP_MAX_BLOCK_LENGTH];
 
+
+  unsigned char inbuf[KBBLOCK], outbuf[KBBLOCK + EVP_MAX_BLOCK_LENGTH];
   int inlen, outlen, bytes_written_count = 0;
   EVP_CIPHER_CTX ctx;
-
-  char * key;
-  char * iv;
 
   if (length == -1)
     {
@@ -126,23 +124,27 @@ do_crypt(FILE * content, int length , FILE * out, char * password, int do_encryp
       fseek(content, SEEK_SET, position);
     }
 
-
-  aes256_key_and_iv(password, key, iv);
+  unsigned char * key;
+  unsigned char * iv;
+  aes256_key_and_iv(password, &key, &iv);
 
   EVP_CIPHER_CTX_init(&ctx);
-	EVP_CipherInit_ex(&ctx, EVP_aes_256_cbc(), NULL, NULL, NULL, do_encrypt);
-  OPENSSL_assert(EVP_CIPHER_CTX_key_length(&ctx) == AES256_BLOCK_SIZE);
+	EVP_CipherInit_ex(&ctx, EVP_aes_128_cbc(), NULL, NULL, NULL, do_encrypt);
+  OPENSSL_assert(EVP_CIPHER_CTX_key_length(&ctx) == AES256_KEY_SIZE);
   OPENSSL_assert(EVP_CIPHER_CTX_iv_length(&ctx) == AES256_IV_SIZE);
 
-	EVP_CipherInit_ex(&ctx, NULL, NULL, key, iv, 1);
+	EVP_CipherInit_ex(&ctx, NULL, NULL, key, iv, do_encrypt);
+
 
 	int offset = 0;
 	for( ; length > 0; length -= KBBLOCK)
   	{
     inlen = fread(inbuf, sizeof(unsigned char), (length < KBBLOCK ? length : KBBLOCK), content);
+    if (inlen <= 0) break;
 
     if(!EVP_CipherUpdate(&ctx, outbuf, &outlen, inbuf, inlen))
  			{
+
 			EVP_CIPHER_CTX_cleanup(&ctx);
       free(key);
       free(iv);
@@ -153,7 +155,8 @@ do_crypt(FILE * content, int length , FILE * out, char * password, int do_encryp
     }
 
   if(!EVP_CipherFinal_ex(&ctx, outbuf, &outlen))
-  	{           
+  	{     
+         // ERR_print_errors_fp(stderr);      
     EVP_CIPHER_CTX_cleanup(&ctx);
     free(key);
     free(iv);
@@ -163,8 +166,11 @@ do_crypt(FILE * content, int length , FILE * out, char * password, int do_encryp
   fwrite(outbuf, sizeof(unsigned char), outlen, out);
   bytes_written_count += outlen;
 
+
   EVP_CIPHER_CTX_cleanup(&ctx);
   free(key);
   free(iv);
-  return outlen;
+  //printf("written %d bytes\n ", bytes_written_count);
+  return bytes_written_count;
 }
+

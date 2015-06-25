@@ -272,7 +272,6 @@ create_cripta_with_father(struct directory * dir, FILE * file)
     write_cripta_file((char*)node->data, file, &file_size);
     node = node->next;
     }
-   printf("I am at: %d meta position is: %d\n", (int)ftell(file), dir_meta_position);
   //after all files and dirs seen, write the directory meta fully updated
   fseek(file, dir_meta_position, SEEK_SET);
   fwrite(my_meta, sizeof(char), meta_size, file);
@@ -317,7 +316,7 @@ write_cripta_file(char * path, FILE * out, int * size)
   free(b_file_name_length);
   
   //filename
-  fwrite(path, sizeof(char), file_size, out);
+  fwrite(path, sizeof(char), filename_size, out);
   
   //md5 hash
   fwrite(hash, sizeof(unsigned char), MD5_SIZE, out);
@@ -325,7 +324,6 @@ write_cripta_file(char * path, FILE * out, int * size)
   
   //write the encrypted file directly, only then update the size of the file
   fseek(out, FILE_SIZE_LENGTH, SEEK_CUR);
-
   FILE * in = fopen(path, "r");
   file_size = do_crypt(in, -1, out, g_password, DO_ENCRYPT);
   if (file_size == -1) 
@@ -339,6 +337,8 @@ write_cripta_file(char * path, FILE * out, int * size)
   unsigned char * b_file_size_length = int_to_bytes(file_size, FILE_SIZE_LENGTH);
   fwrite(b_file_size_length, sizeof(unsigned char), FILE_SIZE_LENGTH, out);
   free(b_file_size_length);
+
+  fseek(out,(FILE_SIZE_LENGTH + file_size), SEEK_CUR);
 }
 
 void
@@ -405,9 +405,10 @@ create_cripta_file_content(FILE * cripta, cripta_file * file)
 
   FILE * new_file = fopen(path_leaf(file->name), "w+");
   int size = do_crypt(cripta, file->content_size, new_file, g_password, DO_DECRYPT);
-  if (size = -1)
+  if (size == -1)
     {
       error("Password Failed");
+      remove(path_leaf(file->name));
     }
   return 1;//validate(content, file->content_size, file->hash);
 }
@@ -725,7 +726,8 @@ _cmd(char * cripta_name)
 
       puts("Invalid directory.");
 finish_cmd_round: //Not a proud moment for me
-;
+      printf("<Press any key to continue>");
+      getchar();
     }
     list_free(stack);
     directory_free_with_files(dir_free);
@@ -758,18 +760,25 @@ main(int argc, char * argv[])
 
     dir_name = malloc(strlen(argv[i+1]) + 1);
     strcpy(dir_name, argv[i+1]);
-
     switch (flag[1])
       {
       case 'c':
         {
-        if (g_password == NULL)  break;
+        if (g_password == NULL) 
+          { 
+            error("Insert the password before the mode");
+            break;
+          }
         create_cripta(dir_name);
         break;
         }
       case 'd': 
         {
-        if (g_password == NULL) break;
+        if (g_password == NULL)
+          { 
+            error("Insert the password before the mode");
+            break;
+          }
         _cmd(dir_name);
         break;
 
