@@ -213,7 +213,7 @@ create_cripta(char * path)
 {
   struct directory * dir = new_dir(path);
   if (dir == NULL) return;
-  const char * file_name_suffix = "_CRIPTA";
+  const char * file_name_suffix = ".CRIPTA";
   //create new file
   char * new_file_name = malloc(strlen(path) + strlen(file_name_suffix) + 1);
   sprintf(new_file_name, "%s%s", path, file_name_suffix);

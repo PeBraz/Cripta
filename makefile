@@ -26,4 +26,4 @@ test-val: clean all
 	- valgrind ${VAL_FLAGS} ./${XNAME} -p ${PASSWORD} -d ${TEST_CRIPTA}
 
 clean:
-	rm main.o list.o util.o cripta *_CRIPTA
+	rm main.o list.o util.o cripta *.CRIPTA
